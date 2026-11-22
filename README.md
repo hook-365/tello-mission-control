@@ -260,6 +260,18 @@ Command log events are also pushed over the same connection:
 }
 ```
 
+## Staying in Sync with the Original Project
+
+This copy is based on [thakorneyp11/tello-mission-control](https://github.com/thakorneyp11/tello-mission-control) and keeps its full history, so fixes from there can be pulled in later:
+
+```bash
+git remote add upstream https://github.com/thakorneyp11/tello-mission-control.git   # once
+git fetch upstream
+git merge upstream/main
+```
+
+The original project has no license file; check with its author before sharing this copy publicly.
+
 ## Running Tests
 
 ```bash
