@@ -46,7 +46,8 @@ export default function StickPanel() {
     if (!isFlying) hint = 'Hold LB or RB and press Start to take off';
     else hint = armed ? 'Sticks live' : 'Hold LB or RB to fly. Let go to hover';
   } else if (keyboardMode === 'hold') {
-    hint = isFlying ? 'Hold W A S D, Space, Shift, Q, E to fly' : 'Press T to take off';
+    if (!isFlying) hint = 'Press T to take off';
+    else hint = armed ? 'Sticks live' : 'Hold W A S D, Space, Shift, Q, E to fly';
   } else {
     hint = 'Plug in a controller and press any button';
   }
