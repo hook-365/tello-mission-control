@@ -149,4 +149,32 @@ describe('api client', () => {
     expect(spy).toHaveBeenCalledWith('/api/video/stream/stop', expect.objectContaining({ method: 'POST' }));
     expect(res.ok).toBe(true);
   });
+
+  it('createSequence POSTs JSON and returns the saved sequence', async () => {
+    const spy = mockFetch({ id: 'hop-1', name: 'Hop' }, true, 201);
+    const draft = { name: 'Hop', description: '', auto_takeoff_land: true, steps: [{ type: 'wait' as const, seconds: 1 }] };
+    const res = await api.createSequence(draft);
+    expect(spy).toHaveBeenCalledWith('/api/sequences', expect.objectContaining({ method: 'POST', body: JSON.stringify(draft) }));
+    expect(res.id).toBe('hop-1');
+  });
+
+  it('runDraft surfaces pre-flight problems as an error message', async () => {
+    mockFetch({ detail: { message: 'Pre-flight check failed', problems: ['Battery is 20%'] } }, false, 409);
+    await expect(api.runDraft({ name: 'x', description: '', auto_takeoff_land: true, steps: [] })).rejects.toThrow(
+      'Battery is 20%',
+    );
+  });
+
+  it('turns FastAPI validation errors into readable step messages', async () => {
+    mockFetch({ detail: [{ loc: ['body', 'steps', 2, 'move', 'distance_cm'], msg: 'Input should be less than or equal to 500' }] }, false, 422);
+    await expect(api.updateSequence('hop-1', { name: 'x', description: '', auto_takeoff_land: true, steps: [] })).rejects.toThrow(
+      'Step 3: Input should be less than or equal to 500',
+    );
+  });
+
+  it('abortSequence POSTs to /api/sequences/abort', async () => {
+    const spy = mockFetch({ ok: true });
+    await api.abortSequence();
+    expect(spy).toHaveBeenCalledWith('/api/sequences/abort', expect.objectContaining({ method: 'POST' }));
+  });
 });

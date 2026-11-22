@@ -1,7 +1,10 @@
 import os
+import tempfile
 
 # Force mock mode before any app imports
 os.environ["TELLO_USE_MOCK_DRONE"] = "true"
+# Keep saved sequences out of the source tree during tests
+os.environ.setdefault("TELLO_SEQUENCES_DIR", tempfile.mkdtemp(prefix="tello-seq-test-"))
 
 import pytest
 from fastapi.testclient import TestClient
@@ -28,5 +31,15 @@ def test_client():
     ts = TelemetryService(dm)
     app.state.drone_manager = dm
     app.state.telemetry_service = ts
+    with TestClient(app) as client:
+        yield client
+
+
+@pytest.fixture
+def seq_client(tmp_path, monkeypatch):
+    """Test client with an isolated, empty sequences directory."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "sequences_dir", str(tmp_path / "sequences"))
     with TestClient(app) as client:
         yield client

@@ -19,19 +19,48 @@ export interface CommandLogEntry {
   error?: string;
 }
 
-export interface Sequence {
-  id: string;
+// ---- Flight sequencer ----
+
+export type SequenceStep =
+  | { type: 'takeoff' }
+  | { type: 'land' }
+  | { type: 'move'; direction: MoveDirection; distance_cm: number }
+  | { type: 'rotate'; direction: RotateDirection; angle_deg: number }
+  | { type: 'flip'; direction: FlipDirection }
+  | { type: 'wait'; seconds: number };
+
+export type StepType = SequenceStep['type'];
+
+/** A sequence as sent to the backend (create / update / run unsaved). */
+export interface SequenceDraft {
   name: string;
   description: string;
-  steps: number;
+  auto_takeoff_land: boolean;
+  steps: SequenceStep[];
 }
 
+/** A saved sequence as returned by the backend. */
+export interface Sequence extends SequenceDraft {
+  id: string;
+  builtin: boolean;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export type RunState = 'idle' | 'running' | 'completed' | 'aborted' | 'failed';
+
+/** Live run status (GET /api/sequences/run/status and `sequence_progress` WS events). */
 export interface SequenceProgress {
-  sequence_id: string;
+  run_id?: string | null;
+  sequence_id: string | null;
+  sequence_name?: string | null;
+  status: RunState;
   current_step: number;
   total_steps: number;
+  /** Index into the sequence's own steps; null for automatic takeoff/land. */
+  step_index?: number | null;
   step_description: string;
-  status: 'running' | 'completed' | 'cancelled' | 'error';
+  message?: string;
 }
 
 export type MoveDirection = 'forward' | 'back' | 'left' | 'right' | 'up' | 'down';

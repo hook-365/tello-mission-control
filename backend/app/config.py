@@ -22,6 +22,15 @@ class Settings(BaseSettings):
 
     # Mock mode (for development/testing without a physical drone)
     use_mock_drone: bool = False
+    # Seconds each mock flight command "takes" (0 = instant; ~0.8 makes the
+    # sequencer's live step highlighting visible in mock mode)
+    mock_command_delay_s: float = 0.0
+
+    # Flight sequencer
+    sequences_dir: str = "data/sequences"
+    sequence_min_battery_pct: int = 30   # refuse to start a sequence below this
+    sequence_flip_min_battery_pct: int = 50  # Tello refuses flips below ~50%
+    sequence_abort_battery_pct: int = 15  # land mid-sequence if battery drops below this
 
     model_config = {"env_prefix": "TELLO_"}
 

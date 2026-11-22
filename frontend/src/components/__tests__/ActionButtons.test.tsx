@@ -7,6 +7,7 @@ vi.mock('@/lib/api', () => ({
   takeoff: vi.fn().mockResolvedValue({ ok: true }),
   land: vi.fn().mockResolvedValue({ ok: true }),
   cancelSequence: vi.fn().mockResolvedValue({ ok: true }),
+  abortSequence: vi.fn().mockResolvedValue({ ok: true }),
   runSequence: vi.fn().mockResolvedValue({ ok: true }),
 }));
 

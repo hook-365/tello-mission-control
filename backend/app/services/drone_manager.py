@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Any, Callable
 
 from app.config import settings
-from app.models.commands import MoveDirection, RotateDirection
+from app.models.commands import FLIP_CODES, FlipDirection, MoveDirection, RotateDirection
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,12 @@ class MockTello:
         self._temp_high = 65.0
         self._temp_low = 60.0
 
+    @staticmethod
+    def _simulate_flight_time() -> None:
+        """Optionally pretend a command takes real time (blocking, like djitellopy)."""
+        if settings.mock_command_delay_s > 0:
+            time.sleep(settings.mock_command_delay_s)
+
     def _reset_flight_state(self) -> None:
         self._flying = False
         self._height = 0
@@ -58,12 +65,14 @@ class MockTello:
         logger.info("MockTello: disconnected")
 
     def takeoff(self) -> None:
+        self._simulate_flight_time()
         self._flying = True
         self._height = 50
         self._barometer = 50.0
         logger.info("MockTello: takeoff")
 
     def land(self) -> None:
+        self._simulate_flight_time()
         self._reset_flight_state()
         logger.info("MockTello: land")
 
@@ -72,40 +81,54 @@ class MockTello:
         logger.info("MockTello: emergency stop")
 
     def move_forward(self, x: int) -> None:
+        self._simulate_flight_time()
         self._speed_y = x
         logger.info("MockTello: move_forward %dcm", x)
 
     def move_back(self, x: int) -> None:
+        self._simulate_flight_time()
         self._speed_y = -x
         logger.info("MockTello: move_back %dcm", x)
 
     def move_left(self, x: int) -> None:
+        self._simulate_flight_time()
         self._speed_x = -x
         logger.info("MockTello: move_left %dcm", x)
 
     def move_right(self, x: int) -> None:
+        self._simulate_flight_time()
         self._speed_x = x
         logger.info("MockTello: move_right %dcm", x)
 
     def move_up(self, x: int) -> None:
+        self._simulate_flight_time()
         self._height += x
         self._barometer = float(self._height)
         self._speed_z = x
         logger.info("MockTello: move_up %dcm", x)
 
     def move_down(self, x: int) -> None:
+        self._simulate_flight_time()
         self._height = max(0, self._height - x)
         self._barometer = float(self._height)
         self._speed_z = -x
         logger.info("MockTello: move_down %dcm", x)
 
     def rotate_clockwise(self, x: int) -> None:
+        self._simulate_flight_time()
         self._yaw = (self._yaw + x) % 360
         logger.info("MockTello: rotate_cw %ddeg", x)
 
     def rotate_counter_clockwise(self, x: int) -> None:
+        self._simulate_flight_time()
         self._yaw = (self._yaw - x) % 360
         logger.info("MockTello: rotate_ccw %ddeg", x)
+
+    def flip(self, direction: str) -> None:
+        if direction not in ("l", "r", "f", "b"):
+            raise ValueError(f"Invalid flip direction: {direction}")
+        self._simulate_flight_time()
+        logger.info("MockTello: flip %s", direction)
 
     # -- Telemetry getters (matching djitellopy.Tello API) --
 
@@ -240,7 +263,7 @@ class DroneManager:
         result: str,
         error: str | None = None,
     ) -> None:
-        entry = {
+        await self.broadcast_event({
             "type": "command_log",
             "data": {
                 "command": command,
@@ -249,7 +272,10 @@ class DroneManager:
                 "error": error,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             },
-        }
+        })
+
+    async def broadcast_event(self, entry: dict) -> None:
+        """Send any JSON-able event dict to every WebSocket subscriber."""
         dead: list[Callable] = []
         for cb in self._command_log_callbacks:
             try:
@@ -372,6 +398,15 @@ class DroneManager:
             "rotate", {"direction": direction.value, "angle_deg": angle_deg}, "ok"
         )
         return {"ok": True, "message": f"Rotated {direction.value} {angle_deg}°"}
+
+    # -- Flips --
+
+    async def flip(self, direction: FlipDirection) -> dict:
+        self._require_connected()
+        self._require_flying()
+        await self.execute(self._tello.flip, FLIP_CODES[direction])
+        await self._broadcast_command_log("flip", {"direction": direction.value}, "ok")
+        return {"ok": True, "message": f"Flipped {direction.value}"}
 
     # -- Video streaming --
 

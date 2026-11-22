@@ -59,12 +59,18 @@ export function useWebSocket() {
               break;
             case 'sequence_progress': {
               const progress = msg.data as SequenceProgress;
-              if (progress.status === 'completed' || progress.status === 'cancelled' || progress.status === 'error') {
-                // Clear progress after a brief delay so user sees final state
-                setSequenceProgress(progress);
-                setTimeout(() => setSequenceProgress(null), 2000);
-              } else {
-                setSequenceProgress(progress);
+              setSequenceProgress(progress);
+              if (progress.status !== 'running') {
+                // Keep the final state visible briefly, unless a new run has started since
+                setIsFlying(false);
+                setTimeout(() => {
+                  const current = useDroneStore.getState().sequenceProgress;
+                  if (current?.run_id === progress.run_id && current?.status !== 'running') {
+                    setSequenceProgress(null);
+                  }
+                }, 6000);
+              } else if (progress.current_step > 0) {
+                setIsFlying(true);
               }
               break;
             }

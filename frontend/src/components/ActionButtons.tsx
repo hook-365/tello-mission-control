@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plane, Play } from 'lucide-react';
+import { ListOrdered, OctagonX, Plane } from 'lucide-react';
 import { useDroneStore } from '@/stores/droneStore';
 import * as api from '@/lib/api';
 
@@ -29,14 +29,15 @@ export default function ActionButtons({ onOpenSequences }: ActionButtonsProps) {
     }
   };
 
-  // Sequence running state — replace action buttons with progress view
+  // Sequence running state: replace action buttons with progress + a big Abort
   if (isRunning && sequenceProgress) {
-    const progress = (sequenceProgress.current_step / sequenceProgress.total_steps) * 100;
+    const total = Math.max(1, sequenceProgress.total_steps);
+    const progress = (sequenceProgress.current_step / total) * 100;
 
     return (
-      <div className="animate-fade-in-up hud-panel space-y-3">
-        <span className="text-hud-sm font-medium uppercase tracking-wider">
-          {sequenceProgress.sequence_id}
+      <div className="animate-fade-in-up hud-panel space-y-3 w-[min(360px,calc(100vw-180px))]">
+        <span className="text-hud-sm font-medium uppercase tracking-wider block truncate">
+          {sequenceProgress.sequence_name ?? sequenceProgress.sequence_id ?? 'Sequence'}
         </span>
 
         {/* Progress bar */}
@@ -53,9 +54,10 @@ export default function ActionButtons({ onOpenSequences }: ActionButtonsProps) {
         </span>
 
         <button
-          className="control-btn border-caution text-caution hover:bg-caution/20 w-full px-4 py-2"
-          onClick={() => api.cancelSequence()}
+          className="w-full rounded-xl border-2 border-caution bg-caution/20 text-caution font-bold uppercase tracking-widest py-3.5 text-hud-base flex items-center justify-center gap-2 hover:bg-caution/35 active:bg-caution active:text-black transition"
+          onClick={() => api.abortSequence()}
         >
+          <OctagonX size={20} />
           Abort
         </button>
       </div>
@@ -96,10 +98,10 @@ export default function ActionButtons({ onOpenSequences }: ActionButtonsProps) {
       {/* Sequences */}
       <button
         className="control-btn border-hud-secondary/30 text-hud-secondary px-3 py-2.5 sm:px-4 sm:py-3"
-        disabled={!isFlying || isRunning}
+        disabled={connectionStatus !== 'connected'}
         onClick={handleOpenSequences}
       >
-        <Play size={18} />
+        <ListOrdered size={18} />
         Sequences
       </button>
     </div>

@@ -5,6 +5,8 @@ import type {
   MoveDirection,
   RotateDirection,
   Sequence,
+  SequenceDraft,
+  SequenceProgress,
   StatusResponse,
 } from '@/types/drone';
 
@@ -25,6 +27,58 @@ async function post<T>(path: string, body?: Record<string, unknown>): Promise<T>
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : 'Network error' } as T;
   }
+}
+
+/** For endpoints whose 4xx bodies carry useful detail (validation, pre-flight checks). */
+export class ApiError extends Error {
+  constructor(message: string, public status: number) {
+    super(message);
+  }
+}
+
+function detailToMessage(detail: unknown): string {
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    // FastAPI 422: [{loc, msg}, ...]
+    return detail
+      .map((d) => {
+        const msg = String(d?.msg ?? d).replace(/^Value error, /, '');
+        const loc = Array.isArray(d?.loc) ? d.loc.filter((p: unknown) => p !== 'body') : [];
+        const stepIdx = loc[0] === 'steps' && typeof loc[1] === 'number' ? `Step ${loc[1] + 1}: ` : '';
+        return stepIdx + msg;
+      })
+      .join('\n');
+  }
+  if (detail && typeof detail === 'object') {
+    const d = detail as { message?: string; problems?: string[] };
+    if (d.problems?.length) return d.problems.join('\n');
+    if (d.message) return d.message;
+  }
+  return 'Request failed';
+}
+
+async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      method,
+      headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  } catch (err) {
+    throw new ApiError(err instanceof Error ? err.message : 'Network error', 0);
+  }
+  if (!res.ok) {
+    let message = `HTTP ${res.status}`;
+    try {
+      message = detailToMessage((await res.json()).detail);
+    } catch {
+      // keep the status text
+    }
+    throw new ApiError(message, res.status);
+  }
+  if (res.status === 204) return undefined as T;
+  return res.json();
 }
 
 async function get<T>(path: string): Promise<T> {
@@ -91,10 +145,38 @@ export function getSequences(): Promise<Sequence[]> {
   return get<Sequence[]>('/api/sequences');
 }
 
-export function runSequence(id: string): Promise<ApiResponse> {
-  return post<ApiResponse>(`/api/sequences/${encodeURIComponent(id)}/run`);
+export function createSequence(seq: SequenceDraft): Promise<Sequence> {
+  return request<Sequence>('POST', '/api/sequences', seq);
 }
 
+export function updateSequence(id: string, seq: SequenceDraft): Promise<Sequence> {
+  return request<Sequence>('PUT', `/api/sequences/${encodeURIComponent(id)}`, seq);
+}
+
+export function deleteSequence(id: string): Promise<void> {
+  return request<void>('DELETE', `/api/sequences/${encodeURIComponent(id)}`);
+}
+
+/** Start a saved sequence. Throws ApiError with pre-flight problems on 409. */
+export function runSequence(id: string): Promise<SequenceProgress> {
+  return request<SequenceProgress>('POST', `/api/sequences/${encodeURIComponent(id)}/run`);
+}
+
+/** Start an unsaved sequence straight from the builder. */
+export function runDraft(seq: SequenceDraft): Promise<SequenceProgress> {
+  return request<SequenceProgress>('POST', '/api/sequences/run', { sequence: seq });
+}
+
+export function getRunStatus(): Promise<SequenceProgress> {
+  return get<SequenceProgress>('/api/sequences/run/status');
+}
+
+/** Abort the running sequence; the drone lands after the current step. */
+export function abortSequence(): Promise<ApiResponse> {
+  return post<ApiResponse>('/api/sequences/abort');
+}
+
+/** @deprecated use abortSequence */
 export function cancelSequence(): Promise<ApiResponse> {
   return post<ApiResponse>('/api/sequences/cancel');
 }

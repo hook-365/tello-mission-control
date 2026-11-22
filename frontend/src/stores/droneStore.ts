@@ -36,6 +36,7 @@ interface DroneStore {
   // Sequences
   sequences: Sequence[];
   setSequences: (sequences: Sequence[]) => void;
+  refreshSequences: () => Promise<void>;
   sequenceProgress: SequenceProgress | null;
   setSequenceProgress: (progress: SequenceProgress | null) => void;
 
@@ -85,6 +86,14 @@ export const useDroneStore = create<DroneStore>((set, get) => ({
   // Sequences
   sequences: [],
   setSequences: (sequences) => set({ sequences }),
+  refreshSequences: async () => {
+    if (get().previewMode) return;
+    try {
+      set({ sequences: await api.getSequences() });
+    } catch {
+      // Non-critical: keep the current list
+    }
+  },
   sequenceProgress: null,
   setSequenceProgress: (progress) => set({ sequenceProgress: progress }),
 

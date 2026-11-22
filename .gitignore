@@ -40,3 +40,7 @@ frontend/dist/
 
 # Claude Code
 .claude/
+
+# Saved flight sequences (user data)
+data/
+backend/data/

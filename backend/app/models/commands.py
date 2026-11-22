@@ -17,6 +17,22 @@ class RotateDirection(str, Enum):
     ccw = "ccw"
 
 
+class FlipDirection(str, Enum):
+    left = "left"
+    right = "right"
+    forward = "forward"
+    back = "back"
+
+
+# djitellopy's flip() takes single-letter codes
+FLIP_CODES: dict[FlipDirection, str] = {
+    FlipDirection.left: "l",
+    FlipDirection.right: "r",
+    FlipDirection.forward: "f",
+    FlipDirection.back: "b",
+}
+
+
 class MoveRequest(BaseModel):
     direction: MoveDirection
     distance_cm: int = Field(..., ge=20, le=500, description="Distance in cm (20-500)")
@@ -25,6 +41,10 @@ class MoveRequest(BaseModel):
 class RotateRequest(BaseModel):
     direction: RotateDirection
     angle_deg: int = Field(..., ge=1, le=360, description="Angle in degrees (1-360)")
+
+
+class FlipRequest(BaseModel):
+    direction: FlipDirection
 
 
 class CommandResponse(BaseModel):

@@ -4,13 +4,10 @@ import StatusBar from '@/components/StatusBar';
 import CommandLog from '@/components/CommandLog';
 import FlightControls from '@/components/FlightControls';
 import ActionButtons from '@/components/ActionButtons';
-import SequenceModal from '@/components/SequenceModal';
-import { useDroneStore } from '@/stores/droneStore';
-import * as api from '@/lib/api';
+import SequenceBuilder from '@/components/SequenceBuilder';
 
 export default function HudLayout() {
-  const [sequenceModalOpen, setSequenceModalOpen] = useState(false);
-  const sendCommand = useDroneStore((s) => s.sendCommand);
+  const [sequencerOpen, setSequencerOpen] = useState(false);
 
   return (
     <>
@@ -44,16 +41,10 @@ export default function HudLayout() {
 
       {/* Action buttons — fixed bottom-center, outside grid */}
       <div className="fixed bottom-3 left-1/2 -translate-x-1/2 z-[2] pointer-events-auto sm:bottom-5">
-        <ActionButtons onOpenSequences={() => setSequenceModalOpen(true)} />
+        <ActionButtons onOpenSequences={() => setSequencerOpen((o) => !o)} />
       </div>
 
-      <SequenceModal
-        isOpen={sequenceModalOpen}
-        onClose={() => setSequenceModalOpen(false)}
-        onSelect={(id) => {
-          sendCommand(() => api.runSequence(id));
-        }}
-      />
+      <SequenceBuilder isOpen={sequencerOpen} onClose={() => setSequencerOpen(false)} />
     </>
   );
 }

@@ -62,6 +62,67 @@ npm run dev    # http://localhost:5173
 
 > **Real drone on Linux**: If you need direct UDP access to the drone (192.168.10.1), add `network_mode: host` to the backend service in `docker-compose.yml`. Note that `network_mode: host` does not work on macOS/Windows — run the backend natively instead.
 
+## Flight Sequencer
+
+Script a routine ("up 50, forward 100, spin 360, flip"), save it with a name like *Victory lap*, and play it with one tap.
+
+### 1. One-time setup
+
+The Tello's Wi-Fi has no internet, so build everything **while you're still on your home Wi-Fi**:
+
+```bash
+cp .env.template .env
+docker compose build
+```
+
+Want a test run first? Leave `TELLO_USE_MOCK_DRONE=true` in `.env`, run `docker compose up`, open http://localhost:3000 and click **Connect**. You get a fake drone, so you can build and play sequences without the real one. When you're ready to fly for real, set `TELLO_USE_MOCK_DRONE=false`.
+
+### 2. Connect to the Tello
+
+1. Charge the battery. Sequences need **30%+**, flips need **50%+**.
+2. Turn the Tello on and join its Wi-Fi (`TELLO-XXXXXX`) from your computer.
+3. Run `docker compose up`, open http://localhost:3000 and click **Connect**.
+
+**Second adapter note:** while you're on the Tello's Wi-Fi, your computer has no internet. That's fine for flying, since the app runs entirely on your machine. If you want internet at the same time, plug in Ethernet, or add a cheap USB Wi-Fi adapter and use it for the Tello while the built-in Wi-Fi stays on your home network. See [the networking section](#the-networking-problem-tello-wifi-vs-internet) for details.
+
+**Linux + Docker:** if **Connect** times out, the drone's UDP replies probably aren't reaching the container. Run the backend natively instead (see Native Development above), or give the backend service `network_mode: host`.
+
+### 3. Using the sequencer
+
+1. Click **Sequences** in the bottom bar.
+2. Pick a built-in (★ Victory lap, ★ Square dance, ★ Elevator spin) or **+ New sequence**.
+3. Add steps with the buttons: **Move** (20-500 cm), **Spin** (1-360°), **Flip** (forward/back/left/right), **Hover** (0.5-10 s).
+4. Reorder by dragging a row or using the ↑ ↓ arrows. The trash can deletes a step.
+5. Name it and hit **Save new**. Saved sequences are plain JSON files in `./data/sequences/`, so they survive rebuilds.
+6. Press **Play**. The step that's running lights up blue.
+
+With **Auto take off / land** ticked (the default) the drone takes off by itself before step 1 and always lands at the end. Untick it to place Take off and Land steps yourself.
+
+**Stopping:**
+
+| Button | What happens |
+|---|---|
+| **Abort** (big orange) | Finishes the move in progress (a Tello can't stop mid-move), then lands. Hovers stop right away. Pressing **Land** during a sequence does the same. |
+| **Emergency Stop** (or `Esc`) | Cuts the motors instantly. The drone **drops**. Only for real emergencies. |
+
+**Safety checks built in:** a sequence won't start unless the drone is connected and has 30%+ battery (50%+ if it has flips). If the battery drops below 50% mid-run, flips are skipped; below 15%, it lands. Manual flying buttons are locked while a sequence runs. Hovers max out at 10 s because a Tello lands on its own after about 15 s without a command.
+
+**Before you press Play:** fly somewhere with clear space around and above (the built-in descriptions say how much each needs), keep the drone in sight, and start with a short sequence.
+
+### Sequencer API
+
+| Method | Endpoint | What it does |
+|---|---|---|
+| GET | `/api/sequences` | List built-in and saved sequences |
+| POST | `/api/sequences` | Save a new sequence |
+| GET / PUT / DELETE | `/api/sequences/{id}` | Read, update, delete (built-ins are read-only) |
+| POST | `/api/sequences/{id}/run` | Run a saved sequence |
+| POST | `/api/sequences/run` | Run `{"sequence_id": ...}` or an unsaved `{"sequence": {...}}` |
+| POST | `/api/sequences/abort` | Abort and land |
+| GET | `/api/sequences/run/status` | Current run status |
+
+Progress streams over the existing WebSocket as `{"type": "sequence_progress", "data": {...}}` messages. Step types: `takeoff`, `land`, `move` (`direction`, `distance_cm`), `rotate` (`direction` cw/ccw, `angle_deg`), `flip` (`direction` forward/back/left/right), `wait` (`seconds`).
+
 ## Flying with the API
 
 ```bash
@@ -146,7 +207,9 @@ Command log events are also pushed over the same connection:
 ```bash
 cd backend
 source .venv/bin/activate
-python -m pytest -v    # 54 tests, all use MockTello (no drone needed)
+python -m pytest -v    # 98 tests, all use MockTello (no drone needed)
+
+cd ../frontend && npx vitest run   # 73 frontend tests
 ```
 
 ## API Reference
@@ -191,6 +254,11 @@ All environment variables are prefixed with `TELLO_`. See `.env.template` for th
 | `TELLO_VIDEO_FPS` | `30` | Video stream frame rate |
 | `TELLO_VIDEO_JPEG_QUALITY` | `70` | JPEG compression quality |
 | `TELLO_CORS_ORIGINS` | `["http://localhost:3000","http://localhost:5173"]` | Allowed CORS origins |
+| `TELLO_MOCK_COMMAND_DELAY_S` | `0.0` | Mock mode: seconds each fake command takes (the template uses 0.8 so sequences are watchable) |
+| `TELLO_SEQUENCES_DIR` | `data/sequences` | Where saved sequences are stored |
+| `TELLO_SEQUENCE_MIN_BATTERY_PCT` | `30` | Minimum battery to start a sequence |
+| `TELLO_SEQUENCE_FLIP_MIN_BATTERY_PCT` | `50` | Minimum battery for flips |
+| `TELLO_SEQUENCE_ABORT_BATTERY_PCT` | `15` | Land mid-sequence below this |
 
 ## Project Structure
 
