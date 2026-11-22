@@ -77,6 +77,32 @@ _BUILTIN_DEFS: list[dict] = [
             {"type": "rotate", "direction": "ccw", "angle_deg": 360},
         ],
     },
+    {
+        "id": "builtin-orbit-shot",
+        "name": "Orbit shot",
+        "description": "Films a full circle around whatever is 1.5 m in front of the drone, camera locked on it. Saves a clip. Needs ~4 x 4 m of clear space.",
+        "steps": [
+            {"type": "move", "direction": "up", "distance_cm": 40},
+            {"type": "record", "action": "start"},
+            {"type": "wait", "seconds": 1},
+            {"type": "orbit", "direction": "right", "radius_cm": 150, "degrees": 360, "speed_cm_s": 30},
+            {"type": "wait", "seconds": 1},
+            {"type": "record", "action": "stop"},
+        ],
+    },
+    {
+        "id": "builtin-reveal",
+        "name": "Reveal",
+        "description": "Start close to your subject, facing it. The drone films while it slowly backs away and rises to show the whole scene. Needs ~3 m of clear space behind it.",
+        "steps": [
+            {"type": "record", "action": "start"},
+            {"type": "wait", "seconds": 2},
+            {"type": "glide", "forward_cm": -200, "right_cm": 0, "up_cm": 120, "speed_cm_s": 25},
+            {"type": "wait", "seconds": 2},
+            {"type": "photo"},
+            {"type": "record", "action": "stop"},
+        ],
+    },
 ]
 
 BUILTIN_SEQUENCES: dict[str, Sequence] = {

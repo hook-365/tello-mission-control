@@ -9,6 +9,8 @@ Safety model
   be interrupted mid-move). The runner then lands. Emergency stop stays a
   separate, instant motor cut-off handled by DroneManager.
 * Any failure mid-run lands the drone if it is airborne.
+* Sequences with photo or record steps switch the camera on first, and a clip
+  started by the sequence is always stopped and saved when the run ends.
 """
 
 from __future__ import annotations
@@ -22,8 +24,12 @@ from datetime import datetime, timezone
 from app.config import settings
 from app.models.sequences import (
     FlipStep,
+    GlideStep,
     LandStep,
     MoveStep,
+    OrbitStep,
+    PhotoStep,
+    RecordStep,
     RotateStep,
     RunState,
     RunStatus,
@@ -33,7 +39,9 @@ from app.models.sequences import (
     describe_step,
 )
 from app.services.flight_alerts import signal_level
+from app.models.commands import RotateDirection
 from app.services.drone_manager import DroneManager
+from app.services.media import MediaService
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +60,10 @@ class _Aborted(Exception):
     pass
 
 
+class _StartCamera:
+    """Internal first step for sequences that use the camera."""
+
+
 @dataclass
 class _PlannedStep:
     step: object
@@ -60,8 +72,10 @@ class _PlannedStep:
 
 
 class SequenceRunner:
-    def __init__(self, drone_manager: DroneManager) -> None:
+    def __init__(self, drone_manager: DroneManager, media: MediaService | None = None) -> None:
         self._dm = drone_manager
+        self._media = media or MediaService(drone_manager)
+        self._recording_started = False
         self._status = RunStatus()
         self._task: asyncio.Task | None = None
         self._abort = asyncio.Event()
@@ -157,6 +171,8 @@ class SequenceRunner:
                 plan.insert(0, _PlannedStep(TakeoffStep(), None, "Take off (auto)"))
             if not isinstance(seq.steps[-1], LandStep):
                 plan.append(_PlannedStep(LandStep(), None, "Land (auto)"))
+        if seq.needs_camera:
+            plan.insert(0, _PlannedStep(_StartCamera(), None, "Start camera (auto)"))
         return plan
 
     async def _emit(self) -> None:
@@ -204,7 +220,45 @@ class SequenceRunner:
             await dm.flip(step.direction)
         elif isinstance(step, WaitStep):
             await self._hover(step.seconds)
+        elif isinstance(step, _StartCamera):
+            await self._media.ensure_camera()
+        elif isinstance(step, PhotoStep):
+            item = await self._media.take_photo()
+            return f"Saved {item.name}"
+        elif isinstance(step, RecordStep):
+            if step.action == "start":
+                if self._media.is_recording:
+                    return "Already recording"
+                await self._media.start_recording()
+                self._recording_started = True
+            else:
+                item = await self._media.stop_recording()
+                self._recording_started = False
+                return f"Saved {item.name}" if item else "Wasn't recording"
+        elif isinstance(step, OrbitStep):
+            hops = step.segments()
+            turn = RotateDirection.ccw if step.direction == "right" else RotateDirection.cw
+            for n, (fwd, right, deg) in enumerate(hops, start=1):
+                self._check_abort()
+                await self._update(message=f"{ps.description} ({n}/{len(hops)})")
+                await dm.go(fwd, right, 0, step.speed_cm_s)
+                self._check_abort()
+                if deg > 0:
+                    await dm.rotate(turn, deg)
+        elif isinstance(step, GlideStep):
+            await dm.go(step.forward_cm, step.right_cm, step.up_cm, step.speed_cm_s)
         return None
+
+    async def _stop_our_recording(self) -> str:
+        if not self._recording_started:
+            return ""
+        self._recording_started = False
+        try:
+            item = await self._media.stop_recording()
+            return f"saved {item.name}" if item else ""
+        except Exception as e:  # pragma: no cover
+            logger.error("Sequence: stopping the recording failed: %s", e)
+            return "couldn't save the clip"
 
     async def _land_if_flying(self) -> str:
         if not self._dm.is_flying:
@@ -219,6 +273,7 @@ class SequenceRunner:
     async def _run(self, plan: list[_PlannedStep]) -> None:
         final_state = RunState.completed
         final_msg = "Sequence complete"
+        self._recording_started = False
         try:
             for pos, ps in enumerate(plan, start=1):
                 self._check_abort()
@@ -242,6 +297,7 @@ class SequenceRunner:
             landed = await self._land_if_flying()
             final_msg = f"{reason}, {landed}" if landed else reason
             if isinstance(e, asyncio.CancelledError):
+                await self._stop_our_recording()
                 await self._finish(final_state, final_msg)
                 raise
         except Exception as e:
@@ -249,6 +305,9 @@ class SequenceRunner:
             final_state = RunState.failed
             landed = await self._land_if_flying()
             final_msg = f"Step failed: {e}" + (f", {landed}" if landed else "")
+        saved = await self._stop_our_recording()
+        if saved:
+            final_msg = f"{final_msg}; clip {saved}"
         await self._finish(final_state, final_msg)
 
     async def _finish(self, state: RunState, message: str) -> None:

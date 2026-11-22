@@ -45,7 +45,17 @@ export type SequenceStep =
   | { type: 'move'; direction: MoveDirection; distance_cm: number }
   | { type: 'rotate'; direction: RotateDirection; angle_deg: number }
   | { type: 'flip'; direction: FlipDirection }
-  | { type: 'wait'; seconds: number };
+  | { type: 'wait'; seconds: number }
+  | { type: 'photo' }
+  | { type: 'record'; action: 'start' | 'stop' }
+  | {
+      type: 'orbit';
+      direction: 'left' | 'right';
+      radius_cm: number;
+      degrees: number;
+      speed_cm_s: number;
+    }
+  | { type: 'glide'; forward_cm: number; right_cm: number; up_cm: number; speed_cm_s: number };
 
 export type StepType = SequenceStep['type'];
 
@@ -105,8 +115,39 @@ export interface StatusResponse {
   wifi_snr?: number | null;
 }
 
+// ---- Camera: photos and clips saved on the host ----
+
+export interface MediaItem {
+  name: string;
+  kind: 'photo' | 'clip';
+  size_bytes: number;
+  created_at: string;
+  duration_s?: number | null;
+  /** Where to load it from; null in the demo for clips it can't play. */
+  url: string | null;
+}
+
+export interface RecordingStatus {
+  recording: boolean;
+  name: string | null;
+  elapsed_s: number;
+  started_at: string | null;
+}
+
+export interface MediaListResponse {
+  items: MediaItem[];
+  recording: RecordingStatus;
+}
+
+/** `media` WebSocket events. */
+export type MediaEvent =
+  | { event: 'photo'; item: MediaItem }
+  | ({ event: 'recording_started' } & RecordingStatus)
+  | { event: 'recording_stopped'; item: MediaItem | null }
+  | { event: 'deleted'; name: string };
+
 export interface WsMessage {
-  type: 'telemetry' | 'command_log' | 'sequence_progress';
-  data: TelemetryData | CommandLogEntry | SequenceProgress;
+  type: 'telemetry' | 'command_log' | 'sequence_progress' | 'media';
+  data: TelemetryData | CommandLogEntry | SequenceProgress | MediaEvent;
   timestamp?: string;
 }

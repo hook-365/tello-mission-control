@@ -6,6 +6,7 @@ import FlightControls from '@/components/FlightControls';
 import ActionButtons from '@/components/ActionButtons';
 import SequenceBuilder from '@/components/SequenceBuilder';
 import FlightAlerts from '@/components/FlightAlerts';
+import MediaGallery from '@/components/MediaGallery';
 
 export default function HudLayout() {
   const [sequencerOpen, setSequencerOpen] = useState(false);
@@ -46,6 +47,8 @@ export default function HudLayout() {
       </div>
 
       <FlightAlerts />
+
+      <MediaGallery />
 
       <SequenceBuilder isOpen={sequencerOpen} onClose={() => setSequencerOpen(false)} />
     </>

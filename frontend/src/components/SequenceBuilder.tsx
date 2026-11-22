@@ -22,6 +22,7 @@ import {
   describeStep,
   emptyDraft,
   hasFlips,
+  needsCamera,
   validateDraft,
 } from '@/lib/sequence';
 import type { Sequence, SequenceDraft, SequenceStep, StepType } from '@/types/drone';
@@ -44,6 +45,42 @@ function toDraft(seq: Sequence): SequenceDraft {
 
 function num(value: string): number {
   return value === '' ? Number.NaN : Number(value);
+}
+
+function NumField({
+  label,
+  value,
+  range,
+  unit,
+  disabled,
+  onChange,
+  width = 'w-16',
+}: {
+  label: string;
+  value: number;
+  range: { min: number; max: number; step: number };
+  unit: string;
+  disabled: boolean;
+  onChange: (v: number) => void;
+  width?: string;
+}) {
+  return (
+    <>
+      <input
+        aria-label={label}
+        title={label}
+        type="number"
+        className={`${FIELD} ${width}`}
+        disabled={disabled}
+        min={range.min}
+        max={range.max}
+        step={range.step}
+        value={Number.isNaN(value) ? '' : value}
+        onChange={(e) => onChange(num(e.target.value))}
+      />
+      <span className="text-hud-xs text-hud-secondary">{unit}</span>
+    </>
+  );
 }
 
 function StepFields({
@@ -141,6 +178,55 @@ function StepFields({
             onChange={(e) => onChange({ ...step, seconds: num(e.target.value) })}
           />
           <span className="text-hud-xs text-hud-secondary">sec</span>
+        </>
+      );
+    case 'photo':
+      return <span className="text-hud-xs text-hud-secondary">saved to the gallery</span>;
+    case 'record':
+      return (
+        <select
+          aria-label="Recording"
+          className={FIELD}
+          disabled={disabled}
+          value={step.action}
+          onChange={(e) => onChange({ ...step, action: e.target.value as typeof step.action })}
+        >
+          <option value="start">start clip</option>
+          <option value="stop">stop and save</option>
+        </select>
+      );
+    case 'orbit':
+      return (
+        <>
+          <select
+            aria-label="Orbit direction"
+            className={FIELD}
+            disabled={disabled}
+            value={step.direction}
+            onChange={(e) => onChange({ ...step, direction: e.target.value as typeof step.direction })}
+          >
+            <option value="right">right</option>
+            <option value="left">left</option>
+          </select>
+          <NumField label="Degrees around" value={step.degrees} range={LIMITS.orbitDegrees} unit="°"
+            disabled={disabled} onChange={(v) => onChange({ ...step, degrees: v })} />
+          <NumField label="Distance to subject in cm" value={step.radius_cm} range={LIMITS.radius} unit="cm away"
+            disabled={disabled} onChange={(v) => onChange({ ...step, radius_cm: v })} />
+          <NumField label="Orbit speed in cm/s" value={step.speed_cm_s} range={LIMITS.orbitSpeed} unit="cm/s"
+            width="w-14" disabled={disabled} onChange={(v) => onChange({ ...step, speed_cm_s: v })} />
+        </>
+      );
+    case 'glide':
+      return (
+        <>
+          <NumField label="Forward cm (negative is back)" value={step.forward_cm} range={LIMITS.glide} unit="fwd"
+            disabled={disabled} onChange={(v) => onChange({ ...step, forward_cm: v })} />
+          <NumField label="Right cm (negative is left)" value={step.right_cm} range={LIMITS.glide} unit="right"
+            disabled={disabled} onChange={(v) => onChange({ ...step, right_cm: v })} />
+          <NumField label="Up cm (negative is down)" value={step.up_cm} range={LIMITS.glide} unit="up"
+            disabled={disabled} onChange={(v) => onChange({ ...step, up_cm: v })} />
+          <NumField label="Glide speed in cm/s" value={step.speed_cm_s} range={LIMITS.glideSpeed} unit="cm/s"
+            width="w-14" disabled={disabled} onChange={(v) => onChange({ ...step, speed_cm_s: v })} />
         </>
       );
     default:
@@ -285,6 +371,14 @@ export default function SequenceBuilder({ isOpen, onClose }: SequenceBuilderProp
   const builtins = sequences.filter((s) => s.builtin);
   const mine = sequences.filter((s) => !s.builtin);
   const flipWarning = hasFlips(draft) && battery !== null && battery < 50;
+  const orbit = draft.steps.find((s) => s.type === 'orbit');
+  const cameraNote = needsCamera(draft)
+    ? `The camera turns on by itself before the run; photos and clips land in the gallery.${
+        orbit && orbit.type === 'orbit' && Number.isFinite(orbit.radius_cm)
+          ? ` Orbit needs about ${Math.ceil((orbit.radius_cm * 2 + 100) / 100)} m of clear space.`
+          : ''
+      }`
+    : null;
   // Pre-Play safety notes. Critical = Play is blocked (the backend refuses too).
   const playBlock =
     signalLevel === 'critical'
@@ -297,8 +391,8 @@ export default function SequenceBuilder({ isOpen, onClose }: SequenceBuilderProp
     batteryLevel === 'low' ? 'Battery is low: the run may be refused or cut short.' : null,
   ].filter((w): w is string => !!w);
   const palette: StepType[] = draft.auto_takeoff_land
-    ? ['move', 'rotate', 'flip', 'wait']
-    : ['takeoff', 'move', 'rotate', 'flip', 'wait', 'land'];
+    ? ['move', 'rotate', 'flip', 'wait', 'photo', 'record', 'orbit', 'glide']
+    : ['takeoff', 'move', 'rotate', 'flip', 'wait', 'photo', 'record', 'orbit', 'glide', 'land'];
 
   return (
     <aside
@@ -427,12 +521,13 @@ export default function SequenceBuilder({ isOpen, onClose }: SequenceBuilderProp
       </div>
 
       {/* Validation + notices */}
-      {(errors.length > 0 && draft.steps.length > 0) || flipWarning || notice || playBlock || playWarnings.length > 0 ? (
+      {(errors.length > 0 && draft.steps.length > 0) || flipWarning || notice || playBlock || playWarnings.length > 0 || cameraNote ? (
         <div className="text-hud-xs space-y-1" role="status">
           {draft.steps.length > 0 && errors.map((e) => (
             <p key={e} className="text-caution">{e}</p>
           ))}
           {flipWarning && <p className="text-caution">Battery under 50%: the drone won't flip.</p>}
+          {cameraNote && <p className="text-hud-secondary" data-testid="camera-note">{cameraNote}</p>}
           {!running && playBlock && <p className="text-danger font-semibold" data-testid="play-block">{playBlock}</p>}
           {!running && playWarnings.map((w) => (
             <p key={w} className="text-caution" data-testid="play-warning">{w}</p>

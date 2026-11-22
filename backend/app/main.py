@@ -5,8 +5,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import control, rc, sequences, status, telemetry, video
+from app.routers import control, media, rc, sequences, status, telemetry, video
 from app.services.drone_manager import DroneManager
+from app.services.media import MediaService
 from app.services.sequence_runner import SequenceRunner
 from app.services.sequence_store import SequenceStore
 from app.services.telemetry_service import TelemetryService
@@ -24,7 +25,8 @@ async def lifespan(app: FastAPI):
     app.state.drone_manager = dm
     app.state.telemetry_service = ts
     app.state.sequence_store = SequenceStore(settings.sequences_dir)
-    app.state.sequence_runner = SequenceRunner(dm)
+    app.state.media_service = MediaService(dm, settings.media_dir)
+    app.state.sequence_runner = SequenceRunner(dm, app.state.media_service)
     await ts.start()
     logger.info("Backend ready. Mock mode: %s", settings.use_mock_drone)
 
@@ -33,6 +35,7 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logger.info("Shutting down...")
     await app.state.sequence_runner.shutdown()
+    await app.state.media_service.shutdown()
     await ts.stop()
     await dm.shutdown()
     logger.info("Shutdown complete.")
@@ -58,3 +61,4 @@ app.include_router(video.router)
 app.include_router(sequences.router)
 app.include_router(status.router)
 app.include_router(rc.router)
+app.include_router(media.router)

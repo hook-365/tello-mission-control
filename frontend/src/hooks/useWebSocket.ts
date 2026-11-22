@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useDroneStore } from '@/stores/droneStore';
-import type { CommandLogEntry, SequenceProgress, TelemetryData, WsMessage } from '@/types/drone';
+import type { CommandLogEntry, MediaEvent, SequenceProgress, TelemetryData, WsMessage } from '@/types/drone';
 
 const MAX_BACKOFF = 16000;
 
@@ -11,6 +11,7 @@ export function useWebSocket() {
   const addCommandLog = useDroneStore((s) => s.addCommandLog);
   const setSequenceProgress = useDroneStore((s) => s.setSequenceProgress);
   const setIsFlying = useDroneStore((s) => s.setIsFlying);
+  const applyMediaEvent = useDroneStore((s) => s.applyMediaEvent);
 
   const wsRef = useRef<WebSocket | null>(null);
   const backoffRef = useRef(1000);
@@ -56,6 +57,9 @@ export function useWebSocket() {
             }
             case 'command_log':
               addCommandLog(msg.data as CommandLogEntry);
+              break;
+            case 'media':
+              applyMediaEvent(msg.data as MediaEvent);
               break;
             case 'sequence_progress': {
               const progress = msg.data as SequenceProgress;
@@ -108,5 +112,5 @@ export function useWebSocket() {
         reconnectTimerRef.current = null;
       }
     };
-  }, [connectionStatus, previewMode, setTelemetry, addCommandLog, setSequenceProgress, setIsFlying]);
+  }, [connectionStatus, previewMode, setTelemetry, addCommandLog, setSequenceProgress, setIsFlying, applyMediaEvent]);
 }

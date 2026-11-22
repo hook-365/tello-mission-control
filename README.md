@@ -90,8 +90,8 @@ Want a test run first? Leave `TELLO_USE_MOCK_DRONE=true` in `.env`, run `docker 
 ### 3. Using the sequencer
 
 1. Click **Sequences** in the bottom bar.
-2. Pick a built-in (★ Victory lap, ★ Square dance, ★ Elevator spin) or **+ New sequence**.
-3. Add steps with the buttons: **Move** (20-500 cm), **Spin** (1-360°), **Flip** (forward/back/left/right), **Hover** (0.5-10 s).
+2. Pick a built-in (★ Victory lap, ★ Square dance, ★ Elevator spin, ★ Orbit shot, ★ Reveal) or **+ New sequence**.
+3. Add steps with the buttons: **Move** (20-500 cm), **Spin** (1-360°), **Flip** (forward/back/left/right), **Hover** (0.5-10 s), plus the camera steps **Photo**, **Record**, **Orbit** and **Glide** (see [Camera Moves](#camera-moves)).
 4. Reorder by dragging a row or using the ↑ ↓ arrows. The trash can deletes a step.
 5. Name it and hit **Save new**. Saved sequences are plain JSON files in `./data/sequences/`, so they survive rebuilds.
 6. Press **Play**. The step that's running lights up blue.
@@ -121,7 +121,30 @@ With **Auto take off / land** ticked (the default) the drone takes off by itself
 | POST | `/api/sequences/abort` | Abort and land |
 | GET | `/api/sequences/run/status` | Current run status |
 
-Progress streams over the existing WebSocket as `{"type": "sequence_progress", "data": {...}}` messages. Step types: `takeoff`, `land`, `move` (`direction`, `distance_cm`), `rotate` (`direction` cw/ccw, `angle_deg`), `flip` (`direction` forward/back/left/right), `wait` (`seconds`).
+Progress streams over the existing WebSocket as `{"type": "sequence_progress", "data": {...}}` messages. Step types: `takeoff`, `land`, `move` (`direction`, `distance_cm`), `rotate` (`direction` cw/ccw, `angle_deg`), `flip` (`direction` forward/back/left/right), `wait` (`seconds`), `photo`, `record` (`action` start/stop), `orbit` (`direction` left/right, `radius_cm` 50-300, `degrees` 30-360, `speed_cm_s` 10-60), `glide` (`forward_cm`, `right_cm`, `up_cm` each -500..500 with one over 20, `speed_cm_s` 10-100).
+
+## Camera Moves
+
+Photos and video clips from the drone's camera are saved on the computer running the backend, in `./data/media/` (a Docker volume, so they survive rebuilds). Photos are JPEGs; clips are H.264 MP4s that play in any browser or phone.
+
+- **Status bar:** the camera button takes a photo, the red dot starts a clip (it turns into a stop square with a **REC 0:12** timer), and the pictures button opens the **Gallery**. They work on the ground too: the camera switches itself on.
+- **Gallery:** tap a thumbnail to view or play it, **Save** to download, **Delete** to remove it from the computer.
+- **Sequence steps:**
+
+| Step | What it does |
+|---|---|
+| **Photo** | Saves a photo. Works on the ground or in the air. |
+| **Record** start / stop | Starts or stops a clip. Any clip a sequence started is stopped and saved when it ends, even if it's aborted or a step fails. |
+| **Orbit** left/right | Circles whatever is *N* cm in front of the drone, turning to keep the camera on it. Flown as 30° hops plus turns (a Tello can't turn while flying a line), so it's a 12-sided circle rather than a perfect one. |
+| **Glide** | One smooth straight line on several axes at once, e.g. back 200 and up 120. |
+
+When a sequence has Photo or Record steps, the camera turns on before take-off and the run waits for the first picture (up to 8 s), so the clip doesn't start black.
+
+**Built-ins:**
+- **★ Orbit shot:** rises 40 cm, starts recording and circles the subject 1.5 m ahead. Needs about 4 x 4 m of clear space.
+- **★ Reveal:** start close to the subject, facing it. Records while the drone slowly backs away 2 m and rises 1.2 m, then snaps a photo.
+
+**Not yet checked on a real drone:** the sideways direction of Orbit and Glide follows djitellopy's docs (the Tello's `go` command counts left as positive). If a right orbit drifts left, set `TELLO_GO_Y_IS_LEFT=false`. Clips stop themselves after 5 minutes (`TELLO_RECORD_MAX_S`).
 
 ## Flying with a Game Controller
 
@@ -242,9 +265,9 @@ Command log events are also pushed over the same connection:
 ```bash
 cd backend
 source .venv/bin/activate
-python -m pytest -v    # 131 tests, all use MockTello (no drone needed)
+python -m pytest -v    # 154 tests, all use MockTello (no drone needed)
 
-cd ../frontend && npx vitest run   # 93 frontend tests
+cd ../frontend && npx vitest run   # 109 frontend tests
 ```
 
 ## API Reference
@@ -261,13 +284,18 @@ cd ../frontend && npx vitest run   # 93 frontend tests
 | GET | `/api/video/stream` | MJPEG video stream |
 | POST | `/api/video/stream/start` | Start video stream |
 | POST | `/api/video/stream/stop` | Stop video stream |
-| POST | `/api/video/snapshot` | Capture single JPEG frame |
+| POST | `/api/video/snapshot` | Capture single JPEG frame (download only, not saved) |
+| GET | `/api/media` | Saved photos and clips, newest first, plus recording status |
+| POST | `/api/media/photo` | Save a photo to the gallery (starts the camera if needed) |
+| POST | `/api/media/record/start` · `/stop` | Start / stop and save a clip |
+| GET | `/api/media/record/status` | `{recording, name, elapsed_s, started_at}` |
+| GET / DELETE | `/api/media/files/{name}` | Download or delete a photo or clip |
 | POST | `/api/control/flip` | Flip (body: `{direction}` forward/back/left/right) |
 | POST | `/api/control/rc` | One stick update (body: `{lr, fb, ud, yaw}`, each -100..100); must be flying |
 | WS | `/api/ws/rc` | Stream stick updates as `{lr, fb, ud, yaw}` JSON; replies `{"type":"rc_status"}` when accepted/refused changes. Hovers if updates stop for 0.5 s or the socket closes |
 | GET | `/api/status` | `{connected, flying, streaming, battery, wifi_snr}` |
-| GET | `/api/sequences` | List flight sequences (stub) |
-| WS | `/api/ws/telemetry` | Telemetry push (~4Hz) + command logs |
+| GET | `/api/sequences` | List flight sequences (see [Sequencer API](#sequencer-api)) |
+| WS | `/api/ws/telemetry` | Telemetry push (~4Hz), command logs, sequence progress and `media` events (photo saved, recording started/stopped, deleted) |
 
 ### Allowed Values
 
@@ -304,6 +332,11 @@ All environment variables are prefixed with `TELLO_`. See `.env.template` for th
 | `TELLO_WIFI_POLL_INTERVAL_S` | `3.0` | How often to ask the drone for its signal (skipped while a command runs) |
 | `TELLO_RC_SPEED_LIMIT_PCT` | `100` | Hard cap on stick speed, on top of the in-app slider |
 | `TELLO_RC_TIMEOUT_S` | `0.5` | Hover if stick updates stop for this long |
+| `TELLO_MEDIA_DIR` | `data/media` | Where photos and clips are saved |
+| `TELLO_RECORD_FPS` | `30` | Frame rate of saved clips |
+| `TELLO_RECORD_MAX_S` | `300` | Clips stop and save themselves after this long |
+| `TELLO_CAMERA_START_TIMEOUT_S` | `8.0` | How long to wait for the first picture when the camera starts |
+| `TELLO_GO_Y_IS_LEFT` | `true` | Sideways sign for Orbit/Glide; set `false` if they drift the wrong way |
 | `TELLO_MOCK_BATTERY_PCT` | `85` | Mock mode: starting battery |
 | `TELLO_MOCK_WIFI_SNR` | `90` | Mock mode: Wi-Fi signal |
 

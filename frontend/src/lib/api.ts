@@ -2,7 +2,10 @@ import type {
   ApiResponse,
   ConnectResponse,
   FlipDirection,
+  MediaItem,
+  MediaListResponse,
   MoveDirection,
+  RecordingStatus,
   RotateDirection,
   Sequence,
   SequenceDraft,
@@ -179,6 +182,29 @@ export function abortSequence(): Promise<ApiResponse> {
 /** @deprecated use abortSequence */
 export function cancelSequence(): Promise<ApiResponse> {
   return post<ApiResponse>('/api/sequences/cancel');
+}
+
+// ---- Camera: photos and clips saved on the host ----
+
+export function getMedia(): Promise<MediaListResponse> {
+  return get<MediaListResponse>('/api/media');
+}
+
+/** Save a photo to the gallery (starts the camera if needed). */
+export function takePhoto(): Promise<MediaItem> {
+  return request<MediaItem>('POST', '/api/media/photo');
+}
+
+export function startRecording(): Promise<RecordingStatus> {
+  return request<RecordingStatus>('POST', '/api/media/record/start');
+}
+
+export function stopRecording(): Promise<{ item: MediaItem | null }> {
+  return request<{ item: MediaItem | null }>('POST', '/api/media/record/stop');
+}
+
+export function deleteMedia(name: string): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>('DELETE', `/api/media/files/${encodeURIComponent(name)}`);
 }
 
 export function startVideoStream(): Promise<ApiResponse> {

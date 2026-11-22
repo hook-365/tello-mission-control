@@ -45,6 +45,15 @@ class Settings(BaseSettings):
     wifi_snr_critical: int = 20     # red banner, and sequences refuse to start
     wifi_poll_interval_s: float = 3.0  # how often to ask the drone for its signal
 
+    # Camera: photos and clips saved on this machine
+    media_dir: str = "data/media"
+    record_fps: int = 30            # frames per second written to clips
+    record_max_s: int = 300         # clips stop themselves after this many seconds
+    camera_start_timeout_s: float = 8.0  # wait this long for the first video frame
+
+    # Tello "go x y z" uses y = left; flip this if orbits/glides go sideways the wrong way
+    go_y_is_left: bool = True
+
     # Stick flying (game controller / hold-to-fly keyboard)
     rc_speed_limit_pct: int = 100  # hard cap on stick speed, 10-100 (% of the Tello's max)
     rc_timeout_s: float = 0.5      # no stick update for this long -> stop and hover

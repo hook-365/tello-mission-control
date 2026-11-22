@@ -143,4 +143,20 @@ describe('SequenceBuilder', () => {
     expect(screen.getByTestId('play-warning')).toHaveTextContent('Weak Wi-Fi');
     expect(screen.getByRole('button', { name: /Play/ })).toBeEnabled();
   });
+
+  it('adds camera steps with editable fields and explains the camera', () => {
+    render(<SequenceBuilder isOpen onClose={() => {}} />);
+    fireEvent.change(screen.getByLabelText('Sequence name'), { target: { value: 'Shot' } });
+    fireEvent.click(screen.getByRole('button', { name: /Record/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Orbit/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Glide/ }));
+    expect(screen.getByTestId('step-1')).toHaveAttribute('title', 'Orbit right 360° around a point 150 cm ahead');
+    fireEvent.change(screen.getByLabelText('Distance to subject in cm'), { target: { value: '200' } });
+    expect(screen.getByTestId('step-1')).toHaveAttribute('title', 'Orbit right 360° around a point 200 cm ahead');
+    expect(screen.getByTestId('camera-note')).toHaveTextContent('about 5 m of clear space');
+    fireEvent.change(screen.getByLabelText('Up cm (negative is down)'), { target: { value: '0' } });
+    fireEvent.change(screen.getByLabelText('Forward cm (negative is back)'), { target: { value: '10' } });
+    expect(screen.getByText('Step 3: glide needs at least one distance over 20 cm')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Play/ })).toBeDisabled();
+  });
 });

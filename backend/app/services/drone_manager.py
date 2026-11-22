@@ -40,6 +40,8 @@ class MockTello:
         self._barometer = 0.0
         self._temp_high = 65.0
         self._temp_low = 60.0
+        self._pos_x = 0  # cm forward/back from takeoff spot (for the fake camera view)
+        self._pos_y = 0  # cm left/right
 
     @staticmethod
     def _simulate_flight_time() -> None:
@@ -126,6 +128,22 @@ class MockTello:
         self._yaw = (self._yaw - x) % 360
         logger.info("MockTello: rotate_ccw %ddeg", x)
 
+    def go_xyz_speed(self, x: int, y: int, z: int, speed: int) -> None:
+        """Relative move: x forward, y left, z up (Tello's own frame)."""
+        if not (-500 <= x <= 500 and -500 <= y <= 500 and -500 <= z <= 500):
+            raise ValueError("go: each distance must be -500..500 cm")
+        if all(-20 <= v <= 20 for v in (x, y, z)):
+            raise ValueError("go: at least one distance must be over 20 cm")
+        if not 10 <= speed <= 100:
+            raise ValueError("go: speed must be 10..100 cm/s")
+        self._simulate_flight_time()
+        self._pos_x += x
+        self._pos_y += y
+        self._height = max(20, self._height + z)
+        self._barometer = float(self._height)
+        self._speed_x, self._speed_y, self._speed_z = x, y, z
+        logger.info("MockTello: go %d %d %d at %d", x, y, z, speed)
+
     def flip(self, direction: str) -> None:
         if direction not in ("l", "r", "f", "b"):
             raise ValueError(f"Invalid flip direction: {direction}")
@@ -193,34 +211,58 @@ class MockTello:
         logger.info("MockTello: stream off")
 
     def get_frame_read(self) -> "MockFrameRead":
-        return MockFrameRead()
+        return MockFrameRead(self)
 
 
 class MockFrameRead:
-    """Fake frame reader that generates a placeholder test pattern."""
+    """Fake camera: a moving horizon that follows the mock drone's yaw and height.
+
+    Frames are RGB, like djitellopy's real ones. A new frame is drawn at most
+    30 times a second, so clips and the live view show motion.
+    """
+
+    def __init__(self, tello: "MockTello | None" = None) -> None:
+        self._tello = tello
+        self._t0 = time.monotonic()
+        self._cached = None
+        self._cached_at = -1.0
 
     @property
     def frame(self):
+        now = time.monotonic()
+        if self._cached is not None and now - self._cached_at < 1 / 30:
+            return self._cached
+        self._cached = self._draw(now - self._t0)
+        self._cached_at = now
+        return self._cached
+
+    def _draw(self, t: float):
         import numpy as np
 
-        # 960x720 dark frame with text overlay
-        img = np.zeros((720, 960, 3), dtype=np.uint8)
-        img[:] = (40, 40, 40)  # dark gray background
-
+        w, h = 960, 720
+        yaw = self._tello._yaw if self._tello else 0
+        height = self._tello._height if self._tello else 0
+        img = np.empty((h, w, 3), dtype=np.uint8)
+        horizon = int(h * 0.62 + min(height, 300) * 0.6)  # climbing drops the horizon
+        horizon = max(60, min(h - 60, horizon))
+        img[:horizon] = (70, 120, 190)  # sky (RGB)
+        img[horizon:] = (60, 110, 60)   # grass
         try:
             import cv2
 
-            cv2.putText(
-                img, "MOCK DRONE", (280, 340),
-                cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 3,
-            )
-            cv2.putText(
-                img, "No drone connected", (310, 400),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (180, 180, 180), 1,
-            )
+            # "Trees" spaced around 360 degrees so turning visibly pans the view
+            for i in range(12):
+                rel = (i * 30 - yaw + 180) % 360 - 180  # degrees off centre; ~120 deg view
+                x = int(w / 2 + rel * w / 120)
+                if -40 <= x <= w + 40:
+                    cv2.rectangle(img, (x - 14, horizon - 70), (x + 14, horizon), (40, 80, 40), -1)
+                    cv2.putText(img, str(i * 30), (x - 16, horizon + 30),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (230, 230, 230), 1)
+            cv2.putText(img, "MOCK DRONE", (330, 90), cv2.FONT_HERSHEY_SIMPLEX, 1.6, (255, 255, 255), 3)
+            cv2.putText(img, f"yaw {yaw:3d}  height {height:3d} cm  t {t:6.1f}s", (250, 140),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
         except ImportError:
             pass
-
         return img
 
 
@@ -260,6 +302,14 @@ class DroneManager:
         return self._streaming
 
     @property
+    def frame_is_rgb(self) -> bool:
+        """djitellopy 2.5 decodes frames to RGB (PIL), and the mock does the same.
+
+        OpenCV expects BGR, so anything that encodes with cv2 converts first.
+        """
+        return True
+
+    @property
     def wifi_snr(self) -> int | None:
         """Last Wi-Fi signal-to-noise reading, or None if unknown."""
         return self._wifi_snr
@@ -278,6 +328,9 @@ class DroneManager:
             self._command_log_callbacks.remove(callback)
         except ValueError:
             pass
+
+    async def log_command(self, command: str, params: dict, error: str | None = None) -> None:
+        await self._broadcast_command_log(command, params, "error" if error else "ok", error)
 
     async def _broadcast_command_log(
         self,
@@ -428,6 +481,19 @@ class DroneManager:
             "rotate", {"direction": direction.value, "angle_deg": angle_deg}, "ok"
         )
         return {"ok": True, "message": f"Rotated {direction.value} {angle_deg}°"}
+
+    # -- Relative moves (used by orbit and glide sequence steps) --
+
+    async def go(self, forward_cm: int, right_cm: int, up_cm: int, speed_cm_s: int) -> dict:
+        """Fly a straight line relative to where the drone faces, all axes at once."""
+        self._require_connected()
+        self._require_flying()
+        await self.stop_rc()
+        y = -right_cm if settings.go_y_is_left else right_cm
+        await self.execute(self._tello.go_xyz_speed, forward_cm, y, up_cm, speed_cm_s)
+        params = {"forward_cm": forward_cm, "right_cm": right_cm, "up_cm": up_cm, "speed_cm_s": speed_cm_s}
+        await self._broadcast_command_log("go", params, "ok")
+        return {"ok": True, "message": "Moved"}
 
     # -- Flips --
 

@@ -4,7 +4,10 @@ import type {
   CommandLogEntry,
   ConnectionStatus,
   KeyboardMode,
+  MediaEvent,
+  MediaItem,
   RcSticks,
+  RecordingStatus,
   Sequence,
   SequenceProgress,
   TelemetryData,
@@ -12,6 +15,8 @@ import type {
 import * as api from '@/lib/api';
 
 const MAX_LOG_ENTRIES = 200;
+
+export const NOT_RECORDING: RecordingStatus = { recording: false, name: null, elapsed_s: 0, started_at: null };
 
 export interface StickInput {
   sticks: RcSticks;
@@ -89,6 +94,16 @@ interface DroneStore {
   setStickInput: (input: StickInput) => void;
   rcError: string | null;
   setRcError: (e: string | null) => void;
+
+  // Camera: saved photos and clips
+  media: MediaItem[];
+  recording: RecordingStatus;
+  galleryOpen: boolean;
+  setGalleryOpen: (open: boolean) => void;
+  refreshMedia: () => Promise<void>;
+  applyMediaEvent: (e: MediaEvent) => void;
+  /** Newest item to briefly highlight in the gallery / show a toast for. */
+  lastSaved: MediaItem | null;
 
   // Alerts
   alertsMuted: boolean;
@@ -170,6 +185,41 @@ export const useDroneStore = create<DroneStore>((set, get) => ({
   rcError: null,
   setRcError: (e) => set({ rcError: e }),
 
+  // Camera
+  media: [],
+  recording: NOT_RECORDING,
+  galleryOpen: false,
+  setGalleryOpen: (open) => set({ galleryOpen: open }),
+  lastSaved: null,
+  refreshMedia: async () => {
+    if (get().previewMode) return;
+    try {
+      const res = await api.getMedia();
+      set({ media: res.items, recording: res.recording });
+    } catch {
+      // Keep what we have
+    }
+  },
+  applyMediaEvent: (e) => {
+    const addItem = (item: MediaItem) =>
+      set((s) => ({ media: [item, ...s.media.filter((m) => m.name !== item.name)], lastSaved: item }));
+    switch (e.event) {
+      case 'photo':
+        addItem(e.item);
+        break;
+      case 'recording_started':
+        set({ recording: { recording: true, name: e.name, elapsed_s: e.elapsed_s, started_at: e.started_at } });
+        break;
+      case 'recording_stopped':
+        set({ recording: NOT_RECORDING });
+        if (e.item) addItem(e.item);
+        break;
+      case 'deleted':
+        set((s) => ({ media: s.media.filter((m) => m.name !== e.name) }));
+        break;
+    }
+  },
+
   // Alerts
   alertsMuted: false,
   toggleAlertsMuted: () => set((s) => ({ alertsMuted: !s.alertsMuted })),
@@ -205,6 +255,7 @@ export const useDroneStore = create<DroneStore>((set, get) => ({
         });
         // Start video stream (fire-and-forget, non-blocking)
         api.startVideoStream().catch(() => {});
+        get().refreshMedia();
         // Fetch available sequences
         try {
           const sequences = await api.getSequences();
@@ -239,6 +290,8 @@ export const useDroneStore = create<DroneStore>((set, get) => ({
       sequenceProgress: null,
       commandPending: false,
       previewMode: false,
+      recording: NOT_RECORDING,
+      galleryOpen: false,
     });
   },
 

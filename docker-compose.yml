@@ -10,6 +10,7 @@ services:
       - "11111:11111/udp" # Tello video stream
     volumes:
       - ./data/sequences:/app/data/sequences  # saved flight sequences survive rebuilds
+      - ./data/media:/app/data/media          # photos and video clips from the drone camera
     restart: unless-stopped
 
   frontend:

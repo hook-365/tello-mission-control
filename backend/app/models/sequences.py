@@ -7,6 +7,7 @@ at the end, so a sequence can simply be "up 50, forward 100, spin 360, flip".
 
 from __future__ import annotations
 
+import math
 from datetime import datetime
 from enum import Enum
 from typing import Annotated, Literal, Union
@@ -53,10 +54,87 @@ class WaitStep(BaseModel):
     )
 
 
+class PhotoStep(BaseModel):
+    type: Literal["photo"] = "photo"
+
+
+class RecordStep(BaseModel):
+    type: Literal["record"] = "record"
+    action: Literal["start", "stop"]
+
+
+ORBIT_MAX_SEGMENT_DEG = 30
+
+
+class OrbitStep(BaseModel):
+    """Circle a point in front of the drone, turning to keep the camera on it.
+
+    Flown as short straight hops plus small turns (a Tello can't yaw while it
+    flies a "go" line), so it's a polygon rather than a perfect circle.
+    """
+
+    type: Literal["orbit"] = "orbit"
+    direction: Literal["left", "right"]
+    radius_cm: int = Field(150, ge=50, le=300, description="Distance to the subject in cm (50-300)")
+    degrees: int = Field(360, ge=30, le=360, description="How far around to go (30-360)")
+    speed_cm_s: int = Field(30, ge=10, le=60, description="Flying speed in cm/s (10-60)")
+
+    def segments(self) -> list[tuple[int, int, int]]:
+        """(forward_cm, right_cm, turn_deg) for each hop; turn is towards the subject."""
+        n = math.ceil(self.degrees / ORBIT_MAX_SEGMENT_DEG)
+        # each hop must move more than 20 cm on some axis or the Tello rejects it
+        while n > 1 and round(self.radius_cm * math.sin(math.radians(self.degrees / n))) <= 20:
+            n -= 1
+        hops: list[tuple[int, int, int]] = []
+        turned = 0
+        for i in range(1, n + 1):
+            theta = math.radians(self.degrees / n)
+            fwd = round(self.radius_cm * (1 - math.cos(theta)))
+            side = round(self.radius_cm * math.sin(theta))
+            target = round(self.degrees * i / n)
+            hops.append((fwd, side if self.direction == "right" else -side, target - turned))
+            turned = target
+        return hops
+
+
+class GlideStep(BaseModel):
+    """One smooth straight line on several axes at once, e.g. back and up for a reveal."""
+
+    type: Literal["glide"] = "glide"
+    forward_cm: int = Field(0, ge=-500, le=500, description="Forward (+) or back (-) in cm")
+    right_cm: int = Field(0, ge=-500, le=500, description="Right (+) or left (-) in cm")
+    up_cm: int = Field(0, ge=-500, le=500, description="Up (+) or down (-) in cm")
+    speed_cm_s: int = Field(30, ge=10, le=100, description="Speed in cm/s (10-100)")
+
+    @model_validator(mode="after")
+    def _big_enough(self) -> "GlideStep":
+        if all(abs(v) <= 20 for v in (self.forward_cm, self.right_cm, self.up_cm)):
+            raise ValueError("Glide needs at least one distance over 20 cm")
+        return self
+
+
 Step = Annotated[
-    Union[TakeoffStep, LandStep, MoveStep, RotateStep, FlipStep, WaitStep],
+    Union[
+        TakeoffStep, LandStep, MoveStep, RotateStep, FlipStep, WaitStep,
+        PhotoStep, RecordStep, OrbitStep, GlideStep,
+    ],
     Field(discriminator="type"),
 ]
+
+CAMERA_STEPS = (PhotoStep, RecordStep)
+AIRBORNE_STEPS = (MoveStep, RotateStep, FlipStep, OrbitStep, GlideStep)
+
+
+def _glide_words(step: "GlideStep") -> str:
+    parts = []
+    for value, pos, neg in (
+        (step.forward_cm, "forward", "back"),
+        (step.right_cm, "right", "left"),
+        (step.up_cm, "up", "down"),
+    ):
+        if value:
+            parts.append(f"{pos if value > 0 else neg} {abs(value)}")
+    return ", ".join(parts) + " cm"
 
 _ROTATE_WORDS = {RotateDirection.cw: "clockwise", RotateDirection.ccw: "counter-clockwise"}
 
@@ -75,6 +153,14 @@ def describe_step(step: BaseModel) -> str:
         return f"Flip {step.direction.value}"
     if isinstance(step, WaitStep):
         return f"Hover {step.seconds:g} s"
+    if isinstance(step, PhotoStep):
+        return "Take photo"
+    if isinstance(step, RecordStep):
+        return "Start recording" if step.action == "start" else "Stop recording"
+    if isinstance(step, OrbitStep):
+        return f"Orbit {step.direction} {step.degrees}° around a point {step.radius_cm} cm ahead"
+    if isinstance(step, GlideStep):
+        return f"Glide {_glide_words(step)}"
     return step.__class__.__name__
 
 
@@ -91,7 +177,7 @@ def flight_order_errors(steps: list, auto_takeoff_land: bool) -> list[str]:
             if not flying:
                 errors.append(f"Step {i}: land while already on the ground")
             flying = False
-        elif isinstance(step, (MoveStep, RotateStep, FlipStep)) and not flying:
+        elif isinstance(step, AIRBORNE_STEPS) and not flying:
             errors.append(f"Step {i}: '{describe_step(step)}' needs the drone in the air (add a takeoff first)")
     if flying and not auto_takeoff_land:
         errors.append("Sequence ends in the air: add a land step or turn on auto takeoff/land")
@@ -119,6 +205,10 @@ class SequenceIn(BaseModel):
     @property
     def has_flips(self) -> bool:
         return any(isinstance(s, FlipStep) for s in self.steps)
+
+    @property
+    def needs_camera(self) -> bool:
+        return any(isinstance(s, CAMERA_STEPS) for s in self.steps)
 
 
 class Sequence(SequenceIn):

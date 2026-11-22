@@ -5,6 +5,7 @@ import tempfile
 os.environ["TELLO_USE_MOCK_DRONE"] = "true"
 # Keep saved sequences out of the source tree during tests
 os.environ.setdefault("TELLO_SEQUENCES_DIR", tempfile.mkdtemp(prefix="tello-seq-test-"))
+os.environ.setdefault("TELLO_MEDIA_DIR", tempfile.mkdtemp(prefix="tello-media-test-"))
 
 import pytest
 from fastapi.testclient import TestClient

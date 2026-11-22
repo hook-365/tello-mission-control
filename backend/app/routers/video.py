@@ -8,6 +8,7 @@ from fastapi.responses import Response, StreamingResponse
 from app.config import settings
 from app.models.commands import CommandResponse
 from app.services.drone_manager import DroneNotConnectedError
+from app.services.media import frame_to_bgr
 
 router = APIRouter(prefix="/api/video", tags=["video"])
 logger = logging.getLogger(__name__)
@@ -24,7 +25,8 @@ async def _generate_mjpeg_frames(drone_manager):
             await asyncio.sleep(interval)
             continue
 
-        _, jpeg = cv2.imencode(".jpg", frame, encode_params)
+        bgr = frame_to_bgr(frame, drone_manager.frame_is_rgb)
+        _, jpeg = cv2.imencode(".jpg", bgr, encode_params)
         yield (
             b"--frame\r\n"
             b"Content-Type: image/jpeg\r\n\r\n"
@@ -100,7 +102,7 @@ async def snapshot(request: Request):
     if frame is None:
         raise HTTPException(status_code=503, detail="No frame available")
 
-    _, jpeg = cv2.imencode(".jpg", frame)
+    _, jpeg = cv2.imencode(".jpg", frame_to_bgr(frame, dm.frame_is_rgb))
     return Response(
         content=jpeg.tobytes(),
         media_type="image/jpeg",

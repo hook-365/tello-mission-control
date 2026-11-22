@@ -1,8 +1,23 @@
-import { useCallback } from 'react';
-import { Camera, Settings, LogOut, Wifi, WifiLow, WifiOff, WifiZero } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { Camera, Circle, Images, Square, LogOut, Wifi, WifiLow, WifiOff, WifiZero } from 'lucide-react';
 import { useDroneStore } from '@/stores/droneStore';
 import * as api from '@/lib/api';
-import { pad, batteryTextColor } from '@/lib/format';
+import { batteryTextColor } from '@/lib/format';
+
+function RecTimer({ startedAt }: { startedAt: string | null }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(t);
+  }, []);
+  const secs = startedAt ? Math.max(0, Math.floor((now - Date.parse(startedAt)) / 1000)) : 0;
+  return (
+    <span className="font-mono text-hud-sm text-danger" data-testid="rec-indicator">
+      <span className="inline-block w-2 h-2 rounded-full bg-danger animate-pulse mr-1 align-middle" />
+      REC {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, '0')}
+    </span>
+  );
+}
 
 const STATUS_DOT_CLASS: Record<string, string> = {
   connected: 'bg-ok',
@@ -13,12 +28,18 @@ const STATUS_DOT_CLASS: Record<string, string> = {
 
 export default function StatusBar() {
   const connectionStatus = useDroneStore((s) => s.connectionStatus);
-  const isFlying = useDroneStore((s) => s.isFlying);
   const previewMode = useDroneStore((s) => s.previewMode);
   const telemetry = useDroneStore((s) => s.telemetry);
   const disconnect = useDroneStore((s) => s.disconnect);
+  const recording = useDroneStore((s) => s.recording);
+  const mediaCount = useDroneStore((s) => s.media.length);
+  const setGalleryOpen = useDroneStore((s) => s.setGalleryOpen);
+  const galleryOpen = useDroneStore((s) => s.galleryOpen);
+  const addCommandLog = useDroneStore((s) => s.addCommandLog);
+  const [busy, setBusy] = useState(false);
 
-  const canSnapshot = connectionStatus === 'connected' && isFlying && !previewMode;
+  // Photos and clips work on the ground too; the camera switches itself on.
+  const cameraReady = connectionStatus === 'connected' && !previewMode;
   const battery = telemetry?.battery ?? null;
   const signal = telemetry?.signal_level ?? 'unknown';
   const snr = telemetry?.wifi_snr ?? null;
@@ -26,23 +47,29 @@ export default function StatusBar() {
   const signalClass =
     signal === 'ok' ? 'text-ok' : signal === 'weak' ? 'text-caution' : signal === 'critical' ? 'text-danger animate-pulse' : 'text-hud-dim';
 
-  const handleSnapshot = useCallback(async () => {
-    try {
-      const blob = await api.takeSnapshot();
-      const url = URL.createObjectURL(blob);
-      const now = new Date();
-      const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `tello_${timestamp}.jpg`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch {
-      // Snapshot failed silently — could surface via toast in the future
-    }
-  }, []);
+  const run = useCallback(
+    async (command: string, fn: () => Promise<unknown>) => {
+      setBusy(true);
+      try {
+        await fn(); // success shows up via the media WebSocket event
+      } catch (err) {
+        addCommandLog({
+          command,
+          params: {},
+          result: 'error',
+          error: err instanceof Error ? err.message : 'Failed',
+          timestamp: new Date().toISOString(),
+        });
+      } finally {
+        setBusy(false);
+      }
+    },
+    [addCommandLog],
+  );
+
+  const handlePhoto = () => run('photo', api.takePhoto);
+  const handleRecord = () =>
+    recording.recording ? run('record_stop', api.stopRecording) : run('record_start', api.startRecording);
 
   return (
     <div className="hud-panel animate-fade-in-up flex flex-row items-center gap-3">
@@ -87,25 +114,52 @@ export default function StatusBar() {
       {/* Drone ID */}
       <span className="text-hud-secondary font-mono text-hud-sm">TELLO</span>
 
-      {/* Snapshot button */}
+      {recording.recording && <RecTimer startedAt={recording.started_at} />}
+
+      {/* Photo: saved to the gallery on the host */}
       <button
         type="button"
         className="control-btn p-2"
-        disabled={!canSnapshot}
-        onClick={handleSnapshot}
-        aria-label="Take Snapshot"
+        disabled={!cameraReady || busy}
+        onClick={handlePhoto}
+        aria-label="Take photo"
+        title="Take a photo (saved to the gallery)"
       >
         <Camera size={18} strokeWidth={1.5} />
       </button>
 
-      {/* Settings button (placeholder) */}
+      {/* Record a clip */}
       <button
         type="button"
-        className="control-btn p-2"
-        disabled
-        aria-label="Settings"
+        className={`control-btn p-2 ${recording.recording ? 'text-danger border-danger/40' : ''}`}
+        disabled={!cameraReady || busy}
+        onClick={handleRecord}
+        aria-label={recording.recording ? 'Stop recording' : 'Start recording'}
+        aria-pressed={recording.recording}
+        title={recording.recording ? 'Stop and save the clip' : 'Record a video clip'}
       >
-        <Settings size={18} strokeWidth={1.5} />
+        {recording.recording ? (
+          <Square size={16} strokeWidth={2} fill="currentColor" />
+        ) : (
+          <Circle size={18} strokeWidth={2} className="text-danger" />
+        )}
+      </button>
+
+      {/* Gallery */}
+      <button
+        type="button"
+        className={`control-btn p-2 relative ${galleryOpen ? 'border-info text-info' : ''}`}
+        disabled={previewMode}
+        onClick={() => setGalleryOpen(!galleryOpen)}
+        aria-label="Gallery"
+        title="Photos and clips"
+      >
+        <Images size={18} strokeWidth={1.5} />
+        {mediaCount > 0 && (
+          <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-info text-[10px] leading-4 font-mono text-white">
+            {mediaCount > 99 ? '99+' : mediaCount}
+          </span>
+        )}
       </button>
 
       {/* Disconnect button */}
