@@ -32,6 +32,7 @@ from app.models.sequences import (
     WaitStep,
     describe_step,
 )
+from app.services.flight_alerts import signal_level
 from app.services.drone_manager import DroneManager
 
 logger = logging.getLogger(__name__)
@@ -100,6 +101,11 @@ class SequenceRunner:
                 f"Battery is {battery}%, flips need at least {settings.sequence_flip_min_battery_pct}%"
                 " (remove the flips or charge up)"
             )
+        snr = await self._dm.refresh_wifi_snr()
+        if signal_level(snr) == "critical":
+            problems.append(
+                f"Wi-Fi signal is very weak (SNR {snr}): move closer to the drone before running a sequence"
+            )
         if not seq.auto_takeoff_land and not self._dm.is_flying and seq.steps and not isinstance(seq.steps[0], TakeoffStep):
             problems.append("Drone is on the ground: add a takeoff step or turn on auto takeoff/land")
         if problems:
@@ -109,6 +115,7 @@ class SequenceRunner:
 
     async def start(self, seq: SequenceIn, sequence_id: str | None = None) -> RunStatus:
         await self.preflight(seq)
+        await self._dm.stop_rc()  # don't let leftover stick input carry into the run
         plan = self._plan(seq)
         self._abort = asyncio.Event()
         self._abort_reason = "Aborted"

@@ -154,6 +154,8 @@ export default function SequenceBuilder({ isOpen, onClose }: SequenceBuilderProp
   const progress = useDroneStore((s) => s.sequenceProgress);
   const setSequenceProgress = useDroneStore((s) => s.setSequenceProgress);
   const battery = useDroneStore((s) => s.telemetry?.battery ?? null);
+  const batteryLevel = useDroneStore((s) => s.telemetry?.battery_level ?? 'ok');
+  const signalLevel = useDroneStore((s) => s.telemetry?.signal_level ?? 'unknown');
 
   const [draft, setDraft] = useState<SequenceDraft>(emptyDraft);
   const [loaded, setLoaded] = useState<Sequence | null>(null);
@@ -283,6 +285,17 @@ export default function SequenceBuilder({ isOpen, onClose }: SequenceBuilderProp
   const builtins = sequences.filter((s) => s.builtin);
   const mine = sequences.filter((s) => !s.builtin);
   const flipWarning = hasFlips(draft) && battery !== null && battery < 50;
+  // Pre-Play safety notes. Critical = Play is blocked (the backend refuses too).
+  const playBlock =
+    signalLevel === 'critical'
+      ? 'Wi-Fi signal is very weak: move closer to the drone before playing.'
+      : batteryLevel === 'critical'
+        ? 'Battery is critically low: land and charge first.'
+        : null;
+  const playWarnings = [
+    signalLevel === 'weak' ? 'Weak Wi-Fi: stay close and keep the drone in sight.' : null,
+    batteryLevel === 'low' ? 'Battery is low: the run may be refused or cut short.' : null,
+  ].filter((w): w is string => !!w);
   const palette: StepType[] = draft.auto_takeoff_land
     ? ['move', 'rotate', 'flip', 'wait']
     : ['takeoff', 'move', 'rotate', 'flip', 'wait', 'land'];
@@ -414,12 +427,16 @@ export default function SequenceBuilder({ isOpen, onClose }: SequenceBuilderProp
       </div>
 
       {/* Validation + notices */}
-      {(errors.length > 0 && draft.steps.length > 0) || flipWarning || notice ? (
+      {(errors.length > 0 && draft.steps.length > 0) || flipWarning || notice || playBlock || playWarnings.length > 0 ? (
         <div className="text-hud-xs space-y-1" role="status">
           {draft.steps.length > 0 && errors.map((e) => (
             <p key={e} className="text-caution">{e}</p>
           ))}
           {flipWarning && <p className="text-caution">Battery under 50%: the drone won't flip.</p>}
+          {!running && playBlock && <p className="text-danger font-semibold" data-testid="play-block">{playBlock}</p>}
+          {!running && playWarnings.map((w) => (
+            <p key={w} className="text-caution" data-testid="play-warning">{w}</p>
+          ))}
           {notice && (
             <p className={`whitespace-pre-line ${notice.kind === 'ok' ? 'text-ok' : 'text-danger'}`}>{notice.text}</p>
           )}
@@ -467,7 +484,8 @@ export default function SequenceBuilder({ isOpen, onClose }: SequenceBuilderProp
           )}
           <button
             className="control-btn border-ok text-ok hover:bg-ok/20 px-4 py-2 ml-auto"
-            disabled={busy || errors.length > 0}
+            disabled={busy || errors.length > 0 || !!playBlock}
+            title={playBlock ?? undefined}
             onClick={play}
           >
             <Play size={16} />

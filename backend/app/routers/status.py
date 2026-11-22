@@ -12,6 +12,7 @@ class StatusResponse(BaseModel):
     flying: bool
     streaming: bool
     battery: int
+    wifi_snr: int | None = None
 
 
 @router.get("/api/status", response_model=StatusResponse)
@@ -28,4 +29,5 @@ async def get_status(request: Request):
         flying=dm.is_flying,
         streaming=dm.is_streaming,
         battery=battery,
+        wifi_snr=dm.wifi_snr,
     )

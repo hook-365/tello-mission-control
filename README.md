@@ -123,6 +123,38 @@ With **Auto take off / land** ticked (the default) the drone takes off by itself
 
 Progress streams over the existing WebSocket as `{"type": "sequence_progress", "data": {...}}` messages. Step types: `takeoff`, `land`, `move` (`direction`, `distance_cm`), `rotate` (`direction` cw/ccw, `angle_deg`), `flip` (`direction` forward/back/left/right), `wait` (`seconds`).
 
+## Flying with a Game Controller
+
+Any controller your browser recognises works (Xbox, PlayStation, 8BitDo and most USB/Bluetooth pads). Plug it in or pair it with the laptop, open the app and **press any button once**: browsers only reveal a controller after a button press. The Flight Controls panel then shows its name.
+
+| Control | What it does |
+|---|---|
+| **Hold LB or RB** | Fly. This is the dead-man switch: let go and the drone stops and hovers. |
+| Left stick | Up/down and spin |
+| Right stick | Forward/back and sideways |
+| **LB or RB + Start** (Menu) | Take off |
+| Back (View) | Land |
+| **Click both sticks in together** (L3 + R3) | Emergency motor stop. The drone **drops**. |
+
+- **Stick speed** (slider, 20-100%) sets how fast full stick goes. Start at 50% indoors. The setting is remembered.
+- Small stick movements are ignored (deadzone) and the response is gentle near centre, so drift won't move the drone.
+- No controller? Switch the keyboard to **Hold to fly**: hold W/A/S/D, Space, Shift, Q, E to fly smoothly; let go to hover. **Tap** mode keeps the original one-hop-per-press keys.
+
+**Safety built in:** sticks only work while the drone is flying and no sequence is running. The drone stops and hovers if you let go of the bumper, unplug the controller, switch tabs, or if the browser stops sending for half a second (Wi-Fi hiccup, crash). Pressing a move/spin/flip button or Land first stops any stick motion.
+
+## Battery and Signal Warnings
+
+The status bar shows the Wi-Fi signal next to the battery: the number is the drone's own signal-to-noise reading (higher is better, around 90 right beside it).
+
+| | Amber banner | Red banner + beeping |
+|---|---|---|
+| Battery | 30% or less: "land soon" | 15% or less: "land now" |
+| Wi-Fi signal | 40 or less: "stay closer" | 20 or less: "the drone may land itself" |
+
+The beep repeats every 10 s while something is red; the speaker button on the banner mutes it. Sequences refuse to start on a red signal, and the sequencer shows the warnings above **Play**. The signal thresholds are starting points: if the banners fire too early or too late in your space, change `TELLO_WIFI_SNR_WEAK` / `TELLO_WIFI_SNR_CRITICAL`.
+
+To try the warnings without a drone, start mock mode with a low battery or signal, e.g. `TELLO_MOCK_BATTERY_PCT=20 TELLO_MOCK_WIFI_SNR=30`.
+
 ## Flying with the API
 
 ```bash
@@ -182,7 +214,10 @@ Server pushes telemetry frames at ~4 Hz:
     "attitude": { "pitch": 2, "roll": -1, "yaw": 180 },
     "speed": { "x": 0, "y": 10, "z": 0 },
     "barometer": 150.5,
-    "tof_distance": 120
+    "tof_distance": 120,
+    "wifi_snr": 72,
+    "battery_level": "ok",
+    "signal_level": "ok"
   },
   "timestamp": "2026-03-17T10:30:00.123Z"
 }
@@ -207,9 +242,9 @@ Command log events are also pushed over the same connection:
 ```bash
 cd backend
 source .venv/bin/activate
-python -m pytest -v    # 98 tests, all use MockTello (no drone needed)
+python -m pytest -v    # 131 tests, all use MockTello (no drone needed)
 
-cd ../frontend && npx vitest run   # 73 frontend tests
+cd ../frontend && npx vitest run   # 93 frontend tests
 ```
 
 ## API Reference
@@ -227,7 +262,10 @@ cd ../frontend && npx vitest run   # 73 frontend tests
 | POST | `/api/video/stream/start` | Start video stream |
 | POST | `/api/video/stream/stop` | Stop video stream |
 | POST | `/api/video/snapshot` | Capture single JPEG frame |
-| GET | `/api/status` | `{connected, flying, streaming, battery}` |
+| POST | `/api/control/flip` | Flip (body: `{direction}` forward/back/left/right) |
+| POST | `/api/control/rc` | One stick update (body: `{lr, fb, ud, yaw}`, each -100..100); must be flying |
+| WS | `/api/ws/rc` | Stream stick updates as `{lr, fb, ud, yaw}` JSON; replies `{"type":"rc_status"}` when accepted/refused changes. Hovers if updates stop for 0.5 s or the socket closes |
+| GET | `/api/status` | `{connected, flying, streaming, battery, wifi_snr}` |
 | GET | `/api/sequences` | List flight sequences (stub) |
 | WS | `/api/ws/telemetry` | Telemetry push (~4Hz) + command logs |
 
@@ -259,6 +297,15 @@ All environment variables are prefixed with `TELLO_`. See `.env.template` for th
 | `TELLO_SEQUENCE_MIN_BATTERY_PCT` | `30` | Minimum battery to start a sequence |
 | `TELLO_SEQUENCE_FLIP_MIN_BATTERY_PCT` | `50` | Minimum battery for flips |
 | `TELLO_SEQUENCE_ABORT_BATTERY_PCT` | `15` | Land mid-sequence below this |
+| `TELLO_BATTERY_LOW_PCT` | `30` | Amber battery banner at or below this |
+| `TELLO_BATTERY_CRITICAL_PCT` | `15` | Red battery banner + beep at or below this |
+| `TELLO_WIFI_SNR_WEAK` | `40` | Amber signal banner at or below this |
+| `TELLO_WIFI_SNR_CRITICAL` | `20` | Red signal banner + beep; sequences won't start |
+| `TELLO_WIFI_POLL_INTERVAL_S` | `3.0` | How often to ask the drone for its signal (skipped while a command runs) |
+| `TELLO_RC_SPEED_LIMIT_PCT` | `100` | Hard cap on stick speed, on top of the in-app slider |
+| `TELLO_RC_TIMEOUT_S` | `0.5` | Hover if stick updates stop for this long |
+| `TELLO_MOCK_BATTERY_PCT` | `85` | Mock mode: starting battery |
+| `TELLO_MOCK_WIFI_SNR` | `90` | Mock mode: Wi-Fi signal |
 
 ## Project Structure
 

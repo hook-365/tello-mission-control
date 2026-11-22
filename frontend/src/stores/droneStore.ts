@@ -3,6 +3,8 @@ import type {
   ApiResponse,
   CommandLogEntry,
   ConnectionStatus,
+  KeyboardMode,
+  RcSticks,
   Sequence,
   SequenceProgress,
   TelemetryData,
@@ -10,6 +12,36 @@ import type {
 import * as api from '@/lib/api';
 
 const MAX_LOG_ENTRIES = 200;
+
+export interface StickInput {
+  sticks: RcSticks;
+  /** True while the dead-man is held (controller bumper, or a hold-to-fly key). */
+  armed: boolean;
+  source: 'gamepad' | 'keyboard' | null;
+}
+
+export const IDLE_STICKS: StickInput = {
+  sticks: { lr: 0, fb: 0, ud: 0, yaw: 0 },
+  armed: false,
+  source: null,
+};
+
+function loadPref<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
+  try {
+    const v = localStorage.getItem(key) as T | null;
+    return v && allowed.includes(v) ? v : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function savePref(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Private mode etc.: preference just isn't remembered
+  }
+}
 
 interface DroneStore {
   // Connection
@@ -45,6 +77,22 @@ interface DroneStore {
   setMoveDistance: (d: number) => void;
   rotateAngle: number;
   setRotateAngle: (a: number) => void;
+
+  // Stick flying (game controller / hold-to-fly keys)
+  keyboardMode: KeyboardMode;
+  setKeyboardMode: (m: KeyboardMode) => void;
+  stickSpeed: number; // 20-100 % of max speed
+  setStickSpeed: (pct: number) => void;
+  gamepadName: string | null;
+  setGamepadName: (name: string | null) => void;
+  stickInput: StickInput;
+  setStickInput: (input: StickInput) => void;
+  rcError: string | null;
+  setRcError: (e: string | null) => void;
+
+  // Alerts
+  alertsMuted: boolean;
+  toggleAlertsMuted: () => void;
 
   // UI state
   commandLogCollapsed: boolean;
@@ -102,6 +150,29 @@ export const useDroneStore = create<DroneStore>((set, get) => ({
   setMoveDistance: (d) => set({ moveDistance: Math.max(20, Math.min(500, d)) }),
   rotateAngle: 90,
   setRotateAngle: (a) => set({ rotateAngle: Math.max(1, Math.min(360, a)) }),
+
+  // Stick flying
+  keyboardMode: loadPref<KeyboardMode>('tello.keyboardMode', ['tap', 'hold'], 'tap'),
+  setKeyboardMode: (m) => {
+    savePref('tello.keyboardMode', m);
+    set({ keyboardMode: m });
+  },
+  stickSpeed: Number(loadPref('tello.stickSpeed', ['20', '30', '40', '50', '60', '70', '80', '90', '100'], '50')),
+  setStickSpeed: (pct) => {
+    const v = Math.max(20, Math.min(100, Math.round(pct / 10) * 10));
+    savePref('tello.stickSpeed', String(v));
+    set({ stickSpeed: v });
+  },
+  gamepadName: null,
+  setGamepadName: (name) => set({ gamepadName: name }),
+  stickInput: IDLE_STICKS,
+  setStickInput: (input) => set({ stickInput: input }),
+  rcError: null,
+  setRcError: (e) => set({ rcError: e }),
+
+  // Alerts
+  alertsMuted: false,
+  toggleAlertsMuted: () => set((s) => ({ alertsMuted: !s.alertsMuted })),
 
   // UI state
   commandLogCollapsed: false,

@@ -12,6 +12,7 @@ import { useDroneStore } from '@/stores/droneStore';
 import * as api from '@/lib/api';
 import { getBatteryLevel } from '@/lib/format';
 import type { FlipDirection } from '@/types/drone';
+import StickPanel from '@/components/StickPanel';
 
 const FLIP_LABELS: Record<FlipDirection, string> = {
   forward: 'FWD',
@@ -38,6 +39,8 @@ export default function FlightControls() {
   return (
     <div className="hud-panel animate-fade-in-up max-w-[320px] !p-3">
       <h3 className="hud-label mb-2">Flight Controls</h3>
+
+      <StickPanel />
 
       {/* D-Pad */}
       <div className="grid grid-cols-3 gap-2 justify-items-center">

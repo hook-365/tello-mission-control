@@ -47,8 +47,16 @@ class TelemetryService:
 
     async def _poll_loop(self) -> None:
         interval = 1.0 / settings.telemetry_poll_hz
+        loop = asyncio.get_running_loop()
+        next_wifi = 0.0
         while self._running:
             if self._dm.is_connected:
+                if loop.time() >= next_wifi:
+                    next_wifi = loop.time() + settings.wifi_poll_interval_s
+                    try:
+                        await self._dm.refresh_wifi_snr()
+                    except Exception as e:  # noqa: BLE001
+                        logger.debug("Wi-Fi refresh error: %s", e)
                 try:
                     raw = await self._dm.get_telemetry()
                     frame = TelemetryFrame(

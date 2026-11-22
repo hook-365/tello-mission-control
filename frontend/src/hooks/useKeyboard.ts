@@ -10,6 +10,7 @@ export function useKeyboard() {
   const rotateAngle = useDroneStore((s) => s.rotateAngle);
   const sendCommand = useDroneStore((s) => s.sendCommand);
   const setIsFlying = useDroneStore((s) => s.setIsFlying);
+  const keyboardMode = useDroneStore((s) => s.keyboardMode);
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -32,6 +33,11 @@ export function useKeyboard() {
 
       // Movement keys require flying and no pending command
       if (commandPending) return;
+
+      // In hold-to-fly mode the movement keys stream stick input instead
+      // (see useStickControl); only takeoff/land stay here.
+      const key = e.key.toLowerCase();
+      if (keyboardMode === 'hold' && key !== 't' && key !== 'l') return;
 
       switch (e.key.toLowerCase()) {
         case 'w':
@@ -87,5 +93,5 @@ export function useKeyboard() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [connectionStatus, isFlying, commandPending, moveDistance, rotateAngle, sendCommand, setIsFlying]);
+  }, [connectionStatus, isFlying, commandPending, moveDistance, rotateAngle, sendCommand, setIsFlying, keyboardMode]);
 }

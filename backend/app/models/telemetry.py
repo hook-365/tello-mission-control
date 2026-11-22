@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -29,6 +30,11 @@ class TelemetryData(BaseModel):
     speed: SpeedData
     barometer: float
     tof_distance: int  # cm
+    # Wi-Fi signal-to-noise from the drone's "wifi?" reply (None = not read yet)
+    wifi_snr: int | None = None
+    # Alert levels computed from config thresholds, so the UI doesn't hard-code them
+    battery_level: Literal["ok", "low", "critical"] = "ok"
+    signal_level: Literal["ok", "weak", "critical", "unknown"] = "unknown"
 
 
 class TelemetryFrame(BaseModel):

@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 from app.config import settings
+from app.services.flight_alerts import battery_level, parse_snr, signal_level
 from app.models.commands import FLIP_CODES, FlipDirection, MoveDirection, RotateDirection
 
 logger = logging.getLogger(__name__)
@@ -26,7 +27,8 @@ class MockTello:
     def __init__(self) -> None:
         self._connected = False
         self._flying = False
-        self._battery = 85
+        self._battery = settings.mock_battery_pct
+        self._wifi_snr = settings.mock_wifi_snr
         self._height = 0
         self._flight_time = 0
         self._yaw = 0
@@ -171,6 +173,17 @@ class MockTello:
     def get_distance_tof(self) -> int:
         return self._height
 
+    def send_rc_control(self, lr: int, fb: int, ud: int, yaw: int) -> None:
+        # Fire-and-forget like the real SDK's "rc a b c d". Nudge the fake
+        # telemetry so stick input is visible on the HUD.
+        self._speed_x, self._speed_y, self._speed_z = fb, lr, ud
+        if self._flying:
+            self._height = max(20, min(1000, self._height + ud // 10))
+            self._yaw = (self._yaw + yaw // 10) % 360
+
+    def query_wifi_signal_noise_ratio(self) -> str:
+        return str(self._wifi_snr)
+
     # -- Video --
 
     def streamon(self) -> None:
@@ -226,6 +239,11 @@ class DroneManager:
         self._streaming: bool = False
         self._frame_read: Any | None = None
         self._command_log_callbacks: list[Callable] = []
+        self._wifi_snr: int | None = None
+        # Stick (rc) state
+        self._rc_moving = False
+        self._rc_last = 0.0
+        self._rc_watchdog: asyncio.Task | None = None
 
     # -- Properties --
 
@@ -240,6 +258,11 @@ class DroneManager:
     @property
     def is_streaming(self) -> bool:
         return self._streaming
+
+    @property
+    def wifi_snr(self) -> int | None:
+        """Last Wi-Fi signal-to-noise reading, or None if unknown."""
+        return self._wifi_snr
 
     @property
     def tello(self) -> Any | None:
@@ -313,6 +336,7 @@ class DroneManager:
         await self.execute(self._tello.connect)
         self._connected = True
         battery = await self.get_battery()
+        await self.refresh_wifi_snr()
         await self._broadcast_command_log("connect", {}, "ok")
         return {"ok": True, "status": "connected", "battery": battery}
 
@@ -338,6 +362,8 @@ class DroneManager:
         await self.execute(self._tello.end)
         self._connected = False
         self._tello = None
+        self._wifi_snr = None
+        self._rc_moving = False
         await self._broadcast_command_log("disconnect", {}, "ok")
         return {"ok": True, "status": "disconnected"}
 
@@ -352,6 +378,7 @@ class DroneManager:
 
     async def land(self) -> dict:
         self._require_connected()
+        self._rc_moving = False  # land overrides any stick input
         await self.execute(self._tello.land)
         self._flying = False
         await self._broadcast_command_log("land", {}, "ok")
@@ -359,6 +386,7 @@ class DroneManager:
 
     async def emergency(self) -> dict:
         """Emergency stop — bypasses the lock for instant response."""
+        self._rc_moving = False
         if self._tello:
             await asyncio.to_thread(self._tello.emergency)
             self._flying = False
@@ -370,6 +398,7 @@ class DroneManager:
     async def move(self, direction: MoveDirection, distance_cm: int) -> dict:
         self._require_connected()
         self._require_flying()
+        await self.stop_rc()
         method_map = {
             MoveDirection.forward: self._tello.move_forward,
             MoveDirection.back: self._tello.move_back,
@@ -390,6 +419,7 @@ class DroneManager:
     async def rotate(self, direction: RotateDirection, angle_deg: int) -> dict:
         self._require_connected()
         self._require_flying()
+        await self.stop_rc()
         if direction == RotateDirection.cw:
             await self.execute(self._tello.rotate_clockwise, angle_deg)
         else:
@@ -404,6 +434,7 @@ class DroneManager:
     async def flip(self, direction: FlipDirection) -> dict:
         self._require_connected()
         self._require_flying()
+        await self.stop_rc()
         await self.execute(self._tello.flip, FLIP_CODES[direction])
         await self._broadcast_command_log("flip", {"direction": direction.value}, "ok")
         return {"ok": True, "message": f"Flipped {direction.value}"}
@@ -436,6 +467,87 @@ class DroneManager:
             return None
         return self._frame_read.frame
 
+    # -- Stick control (rc) --
+
+    @property
+    def rc_moving(self) -> bool:
+        return self._rc_moving
+
+    async def send_rc(self, lr: int, fb: int, ud: int, yaw: int) -> bool:
+        """Send one stick update. Returns False if skipped because a command is busy.
+
+        "rc" is fire-and-forget on the Tello, so this is fast, but it still goes
+        through the lock so it can never interleave with a move/flip/land.
+        If a discrete command is running we drop this update rather than queue
+        it: a stale stick position arriving late is worse than a missed one.
+        """
+        self._require_connected()
+        self._require_flying()
+        if self._lock.locked():
+            return False
+        cap = max(10, min(100, settings.rc_speed_limit_pct))
+        vals = [max(-100, min(100, int(v))) * cap // 100 for v in (lr, fb, ud, yaw)]
+        await self.execute(self._tello.send_rc_control, *vals)
+        self._rc_last = time.monotonic()
+        was_moving = self._rc_moving
+        self._rc_moving = any(vals)
+        if self._rc_moving and not was_moving:
+            await self._broadcast_command_log("stick_control", {}, "ok")
+        if self._rc_moving:
+            self._ensure_rc_watchdog()
+        return True
+
+    async def stop_rc(self) -> None:
+        """Zero the sticks (hover) if stick control left the drone moving."""
+        if not self._rc_moving:
+            return
+        self._rc_moving = False
+        if self._connected and self._flying and self._tello is not None:
+            try:
+                await self.execute(self._tello.send_rc_control, 0, 0, 0, 0)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("Failed to zero sticks: %s", e)
+
+    def _ensure_rc_watchdog(self) -> None:
+        if self._rc_watchdog is None or self._rc_watchdog.done():
+            self._rc_watchdog = asyncio.create_task(self._rc_watchdog_loop())
+
+    async def _rc_watchdog_loop(self) -> None:
+        """Dead-man on the server side: if the browser stops sending (tab hidden,
+        Wi-Fi hiccup, controller unplugged), stop the drone and hover."""
+        while self._rc_moving:
+            await asyncio.sleep(0.1)
+            if self._rc_moving and time.monotonic() - self._rc_last > settings.rc_timeout_s:
+                logger.info("Stick input timed out, hovering")
+                await self.stop_rc()
+                await self._broadcast_command_log(
+                    "stick_timeout", {}, "ok", error=None
+                )
+
+    # -- Wi-Fi signal --
+
+    async def refresh_wifi_snr(self) -> int | None:
+        """Ask the drone for its Wi-Fi SNR ("wifi?").
+
+        Unlike the telemetry getters this is a real command on the command
+        socket, so it goes through the lock. If a flight command is in progress
+        we skip this round and keep the last reading rather than queue behind it.
+        """
+        if not self._connected or not self._tello or self._lock.locked():
+            return self._wifi_snr
+        query = getattr(self._tello, "query_wifi_signal_noise_ratio", None)
+        if query is None:
+            return self._wifi_snr
+        try:
+            raw = await self.execute(query)
+        except Exception as e:  # noqa: BLE001 - a flaky reading must never break telemetry
+            logger.debug("Wi-Fi query failed: %s", e)
+            return self._wifi_snr
+        snr = parse_snr(raw)
+        if snr is not None:
+            self._wifi_snr = snr
+        return self._wifi_snr
+
     # -- Telemetry (no lock needed — reads cached state) --
 
     async def get_battery(self) -> int:
@@ -451,6 +563,7 @@ class DroneManager:
                 "attitude": {"pitch": 0, "roll": 0, "yaw": 0},
                 "speed": {"x": 0, "y": 0, "z": 0},
                 "barometer": 0.0, "tof_distance": 0,
+                "wifi_snr": None, "battery_level": "ok", "signal_level": "unknown",
             }
         t = self._tello
 
@@ -477,7 +590,11 @@ class DroneManager:
                 "tof_distance": t.get_distance_tof(),
             }
 
-        return await asyncio.to_thread(_read_all)
+        data = await asyncio.to_thread(_read_all)
+        data["wifi_snr"] = self._wifi_snr
+        data["battery_level"] = battery_level(data["battery"])
+        data["signal_level"] = signal_level(self._wifi_snr)
+        return data
 
     # -- Guards --
 
@@ -492,6 +609,9 @@ class DroneManager:
     # -- Cleanup --
 
     async def shutdown(self) -> None:
+        self._rc_moving = False
+        if self._rc_watchdog is not None:
+            self._rc_watchdog.cancel()
         if self._connected:
             try:
                 await self.disconnect()

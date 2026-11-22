@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import SequenceBuilder from '@/components/SequenceBuilder';
 import { useDroneStore } from '@/stores/droneStore';
 import * as api from '@/lib/api';
@@ -119,5 +119,28 @@ describe('SequenceBuilder', () => {
     fireEvent.click(screen.getByRole('button', { name: /Move/ }));
     fireEvent.click(screen.getByRole('button', { name: /Play/ }));
     expect(await screen.findByText(/needs at least 30%/)).toBeInTheDocument();
+  });
+
+  it('blocks Play on a critical Wi-Fi signal and warns on a weak one', () => {
+    useDroneStore.setState({
+      telemetry: {
+        battery: 80, height: 0, flight_time: 0,
+        temperature: { high: 0, low: 0 }, attitude: { pitch: 0, roll: 0, yaw: 0 },
+        speed: { x: 0, y: 0, z: 0 }, barometer: 0, tof_distance: 0,
+        wifi_snr: 15, battery_level: 'ok', signal_level: 'critical',
+      },
+    });
+    render(<SequenceBuilder isOpen onClose={() => {}} />);
+    fireEvent.change(screen.getByLabelText('Sequence name'), { target: { value: 'Hop' } });
+    fireEvent.click(screen.getByRole('button', { name: /Move/ }));
+    expect(screen.getByTestId('play-block')).toHaveTextContent('move closer');
+    expect(screen.getByRole('button', { name: /Play/ })).toBeDisabled();
+
+    act(() => {
+      useDroneStore.setState((s) => ({ telemetry: { ...s.telemetry!, wifi_snr: 35, signal_level: 'weak' } }));
+    });
+    expect(screen.queryByTestId('play-block')).toBeNull();
+    expect(screen.getByTestId('play-warning')).toHaveTextContent('Weak Wi-Fi');
+    expect(screen.getByRole('button', { name: /Play/ })).toBeEnabled();
   });
 });

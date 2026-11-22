@@ -9,7 +9,25 @@ export interface TelemetryData {
   speed: { x: number; y: number; z: number };
   barometer: number;
   tof_distance: number;
+  /** Wi-Fi signal-to-noise from the drone ("wifi?"), higher is better; null until first read. */
+  wifi_snr?: number | null;
+  /** Alert levels computed by the backend from its configured thresholds. */
+  battery_level?: BatteryAlertLevel;
+  signal_level?: SignalAlertLevel;
 }
+
+export type BatteryAlertLevel = 'ok' | 'low' | 'critical';
+export type SignalAlertLevel = 'ok' | 'weak' | 'critical' | 'unknown';
+
+/** Stick input, each axis -100..100 (percent of max speed). */
+export interface RcSticks {
+  lr: number;
+  fb: number;
+  ud: number;
+  yaw: number;
+}
+
+export type KeyboardMode = 'tap' | 'hold';
 
 export interface CommandLogEntry {
   command: string;
@@ -84,6 +102,7 @@ export interface StatusResponse {
   flying: boolean;
   streaming: boolean;
   battery: number;
+  wifi_snr?: number | null;
 }
 
 export interface WsMessage {

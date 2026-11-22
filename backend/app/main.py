@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import control, sequences, status, telemetry, video
+from app.routers import control, rc, sequences, status, telemetry, video
 from app.services.drone_manager import DroneManager
 from app.services.sequence_runner import SequenceRunner
 from app.services.sequence_store import SequenceStore
@@ -57,3 +57,4 @@ app.include_router(telemetry.router)
 app.include_router(video.router)
 app.include_router(sequences.router)
 app.include_router(status.router)
+app.include_router(rc.router)

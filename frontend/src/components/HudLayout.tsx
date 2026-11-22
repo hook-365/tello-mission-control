@@ -5,6 +5,7 @@ import CommandLog from '@/components/CommandLog';
 import FlightControls from '@/components/FlightControls';
 import ActionButtons from '@/components/ActionButtons';
 import SequenceBuilder from '@/components/SequenceBuilder';
+import FlightAlerts from '@/components/FlightAlerts';
 
 export default function HudLayout() {
   const [sequencerOpen, setSequencerOpen] = useState(false);
@@ -43,6 +44,8 @@ export default function HudLayout() {
       <div className="fixed bottom-3 left-1/2 -translate-x-1/2 z-[2] pointer-events-auto sm:bottom-5">
         <ActionButtons onOpenSequences={() => setSequencerOpen((o) => !o)} />
       </div>
+
+      <FlightAlerts />
 
       <SequenceBuilder isOpen={sequencerOpen} onClose={() => setSequencerOpen(false)} />
     </>

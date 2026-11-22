@@ -47,6 +47,15 @@ class FlipRequest(BaseModel):
     direction: FlipDirection
 
 
+class RcRequest(BaseModel):
+    """Stick input, each axis -100..100 (percent of max speed). Positive = right/forward/up/clockwise."""
+
+    lr: int = Field(0, ge=-100, le=100)
+    fb: int = Field(0, ge=-100, le=100)
+    ud: int = Field(0, ge=-100, le=100)
+    yaw: int = Field(0, ge=-100, le=100)
+
+
 class CommandResponse(BaseModel):
     ok: bool
     message: str = ""

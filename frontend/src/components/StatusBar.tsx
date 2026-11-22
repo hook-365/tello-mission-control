@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { Camera, Settings, LogOut } from 'lucide-react';
+import { Camera, Settings, LogOut, Wifi, WifiLow, WifiOff, WifiZero } from 'lucide-react';
 import { useDroneStore } from '@/stores/droneStore';
 import * as api from '@/lib/api';
 import { pad, batteryTextColor } from '@/lib/format';
@@ -20,6 +20,11 @@ export default function StatusBar() {
 
   const canSnapshot = connectionStatus === 'connected' && isFlying && !previewMode;
   const battery = telemetry?.battery ?? null;
+  const signal = telemetry?.signal_level ?? 'unknown';
+  const snr = telemetry?.wifi_snr ?? null;
+  const SignalIcon = signal === 'ok' ? Wifi : signal === 'weak' ? WifiLow : signal === 'critical' ? WifiZero : WifiOff;
+  const signalClass =
+    signal === 'ok' ? 'text-ok' : signal === 'weak' ? 'text-caution' : signal === 'critical' ? 'text-danger animate-pulse' : 'text-hud-dim';
 
   const handleSnapshot = useCallback(async () => {
     try {
@@ -57,6 +62,21 @@ export default function StatusBar() {
           <span className="w-px h-4 bg-white/10" />
           <span className={`font-mono text-hud-sm ${batteryTextColor(battery)}`}>
             {battery}%
+          </span>
+        </>
+      )}
+
+      {/* Wi-Fi signal (SNR from the drone) */}
+      {telemetry && !previewMode && (
+        <>
+          <span className="w-px h-4 bg-white/10" />
+          <span
+            className={`flex items-center gap-1 font-mono text-hud-sm ${signalClass}`}
+            title={snr === null ? 'Wi-Fi signal: not read yet' : `Wi-Fi signal (SNR): ${snr}`}
+            data-testid="wifi-signal"
+          >
+            <SignalIcon size={16} strokeWidth={1.75} />
+            {snr ?? '--'}
           </span>
         </>
       )}
