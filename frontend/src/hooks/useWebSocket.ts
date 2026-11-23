@@ -1,6 +1,13 @@
 import { useEffect, useRef } from 'react';
 import { useDroneStore } from '@/stores/droneStore';
-import type { CommandLogEntry, MediaEvent, SequenceProgress, TelemetryData, WsMessage } from '@/types/drone';
+import type {
+  CommandLogEntry,
+  DetectionsData,
+  MediaEvent,
+  SequenceProgress,
+  TelemetryData,
+  WsMessage,
+} from '@/types/drone';
 
 const MAX_BACKOFF = 16000;
 
@@ -60,6 +67,9 @@ export function useWebSocket() {
               break;
             case 'media':
               applyMediaEvent(msg.data as MediaEvent);
+              break;
+            case 'detections':
+              useDroneStore.getState().setDetections(msg.data as DetectionsData);
               break;
             case 'sequence_progress': {
               const progress = msg.data as SequenceProgress;

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Camera, Circle, History, Images, Square, LogOut, Wifi, WifiLow, WifiOff, WifiZero } from 'lucide-react';
+import { Camera, Circle, Crosshair, History, Images, ScanSearch, Square, LogOut, Wifi, WifiLow, WifiOff, WifiZero } from 'lucide-react';
 import { useDroneStore } from '@/stores/droneStore';
 import * as api from '@/lib/api';
 import { batteryTextColor } from '@/lib/format';
@@ -41,6 +41,9 @@ export default function StatusBar({ onOpenFlights }: StatusBarProps = {}) {
   const galleryOpen = useDroneStore((s) => s.galleryOpen);
   const addCommandLog = useDroneStore((s) => s.addCommandLog);
   const [busy, setBusy] = useState(false);
+  const isFlying = useDroneStore((s) => s.isFlying);
+  const vision = useDroneStore((s) => s.vision);
+  const setVision = useDroneStore((s) => s.setVision);
 
   // Photos and clips work on the ground too; the camera switches itself on.
   const cameraReady = connectionStatus === 'connected' && !previewMode;
@@ -131,6 +134,37 @@ export default function StatusBar({ onOpenFlights }: StatusBarProps = {}) {
       >
         <Camera size={18} strokeWidth={1.5} />
       </button>
+
+      {/* Vision toggles (only when the backend has the optional feature) */}
+      {vision.available && (
+        <>
+          <button
+            type="button"
+            className={`control-btn p-2 ${vision.detecting ? 'text-info border-info/40' : ''}`}
+            onClick={async () => setVision(await api.setDetecting(!vision.detecting))}
+            aria-label="Object detection"
+            aria-pressed={vision.detecting}
+            title={vision.detecting ? 'Stop object detection' : 'Detect objects in the video'}
+          >
+            <ScanSearch size={18} strokeWidth={1.5} />
+          </button>
+          <button
+            type="button"
+            className={`control-btn p-2 ${vision.tracking ? 'text-caution border-caution/40' : ''}`}
+            disabled={!isFlying && !vision.tracking}
+            onClick={async () => setVision(await api.setTracking(!vision.tracking))}
+            aria-label="Follow person"
+            aria-pressed={vision.tracking}
+            title={
+              vision.tracking
+                ? 'Stop following'
+                : 'Follow the nearest person — any stick, move or land command takes back control'
+            }
+          >
+            <Crosshair size={18} strokeWidth={1.5} />
+          </button>
+        </>
+      )}
 
       {/* Flight log */}
       <button

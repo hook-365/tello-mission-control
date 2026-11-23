@@ -42,6 +42,7 @@ class MockTello:
         self._temp_low = 60.0
         self._pos_x = 0  # cm forward/back from takeoff spot (for the fake camera view)
         self._pos_y = 0  # cm left/right
+        self.rc_commands: list[tuple[int, int, int, int]] = []  # every stick frame, for tests
 
     @staticmethod
     def _simulate_flight_time() -> None:
@@ -194,6 +195,7 @@ class MockTello:
     def send_rc_control(self, lr: int, fb: int, ud: int, yaw: int) -> None:
         # Fire-and-forget like the real SDK's "rc a b c d". Nudge the fake
         # telemetry so stick input is visible on the HUD.
+        self.rc_commands.append((lr, fb, ud, yaw))
         self._speed_x, self._speed_y, self._speed_z = fb, lr, ud
         if self._flying:
             self._height = max(20, min(1000, self._height + ud // 10))
@@ -281,6 +283,7 @@ class DroneManager:
         self._streaming: bool = False
         self._frame_read: Any | None = None
         self._command_log_callbacks: list[Callable] = []
+        self._override_callbacks: list[Callable[[str], None]] = []
         self._wifi_snr: int | None = None
         # Stick (rc) state
         self._rc_moving = False
@@ -322,6 +325,27 @@ class DroneManager:
 
     def add_command_log_callback(self, callback: Callable) -> None:
         self._command_log_callbacks.append(callback)
+
+    # -- Pilot override --
+    #
+    # Automation that steers the drone (vision tracking) registers here and must
+    # let go the moment a person, or a sequence step, takes control.
+
+    def add_override_callback(self, callback: Callable[[str], None]) -> None:
+        self._override_callbacks.append(callback)
+
+    def remove_override_callback(self, callback: Callable[[str], None]) -> None:
+        try:
+            self._override_callbacks.remove(callback)
+        except ValueError:
+            pass
+
+    def _notify_override(self, reason: str) -> None:
+        for cb in list(self._override_callbacks):
+            try:
+                cb(reason)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("Override callback failed: %s", e)
 
     def remove_command_log_callback(self, callback: Callable) -> None:
         try:
@@ -397,6 +421,7 @@ class DroneManager:
         if not self._connected:
             return {"ok": True, "status": "already_disconnected"}
 
+        self._notify_override("disconnect")
         if self._streaming:
             try:
                 await self.execute(self._tello.streamoff)
@@ -431,6 +456,7 @@ class DroneManager:
 
     async def land(self) -> dict:
         self._require_connected()
+        self._notify_override("land")
         self._rc_moving = False  # land overrides any stick input
         await self.execute(self._tello.land)
         self._flying = False
@@ -439,6 +465,7 @@ class DroneManager:
 
     async def emergency(self) -> dict:
         """Emergency stop — bypasses the lock for instant response."""
+        self._notify_override("emergency")
         self._rc_moving = False
         if self._tello:
             await asyncio.to_thread(self._tello.emergency)
@@ -451,6 +478,7 @@ class DroneManager:
     async def move(self, direction: MoveDirection, distance_cm: int) -> dict:
         self._require_connected()
         self._require_flying()
+        self._notify_override("move")
         await self.stop_rc()
         method_map = {
             MoveDirection.forward: self._tello.move_forward,
@@ -472,6 +500,7 @@ class DroneManager:
     async def rotate(self, direction: RotateDirection, angle_deg: int) -> dict:
         self._require_connected()
         self._require_flying()
+        self._notify_override("rotate")
         await self.stop_rc()
         if direction == RotateDirection.cw:
             await self.execute(self._tello.rotate_clockwise, angle_deg)
@@ -488,6 +517,7 @@ class DroneManager:
         """Fly a straight line relative to where the drone faces, all axes at once."""
         self._require_connected()
         self._require_flying()
+        self._notify_override("go")
         await self.stop_rc()
         y = -right_cm if settings.go_y_is_left else right_cm
         await self.execute(self._tello.go_xyz_speed, forward_cm, y, up_cm, speed_cm_s)
@@ -500,6 +530,7 @@ class DroneManager:
     async def flip(self, direction: FlipDirection) -> dict:
         self._require_connected()
         self._require_flying()
+        self._notify_override("flip")
         await self.stop_rc()
         await self.execute(self._tello.flip, FLIP_CODES[direction])
         await self._broadcast_command_log("flip", {"direction": direction.value}, "ok")
@@ -539,16 +570,23 @@ class DroneManager:
     def rc_moving(self) -> bool:
         return self._rc_moving
 
-    async def send_rc(self, lr: int, fb: int, ud: int, yaw: int) -> bool:
+    async def send_rc(
+        self, lr: int, fb: int, ud: int, yaw: int, source: str = "manual"
+    ) -> bool:
         """Send one stick update. Returns False if skipped because a command is busy.
 
         "rc" is fire-and-forget on the Tello, so this is fast, but it still goes
         through the lock so it can never interleave with a move/flip/land.
         If a discrete command is running we drop this update rather than queue
         it: a stale stick position arriving late is worse than a missed one.
+
+        ``source`` is "manual" for a person on the sticks. Automation passes its
+        own name; live manual input cancels it (see ``add_override_callback``).
         """
         self._require_connected()
         self._require_flying()
+        if source == "manual" and any((lr, fb, ud, yaw)):
+            self._notify_override("stick input")
         if self._lock.locked():
             return False
         cap = max(10, min(100, settings.rc_speed_limit_pct))
@@ -557,7 +595,7 @@ class DroneManager:
         self._rc_last = time.monotonic()
         was_moving = self._rc_moving
         self._rc_moving = any(vals)
-        if self._rc_moving and not was_moving:
+        if self._rc_moving and not was_moving and source == "manual":
             await self._broadcast_command_log("stick_control", {}, "ok")
         if self._rc_moving:
             self._ensure_rc_watchdog()

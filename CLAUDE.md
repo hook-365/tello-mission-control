@@ -83,11 +83,15 @@ cd frontend && npx vitest run                   # Frontend tests (CI mode)
 │   │   │   ├── telemetry.py        # WS /api/ws/telemetry
 │   │   │   ├── sequences.py        # GET /api/sequences (stub)
 │   │   │   ├── flights.py          # GET/DELETE /api/flights (recorded sessions)
+│   │   │   ├── vision.py           # /api/vision (503 unless TELLO_VISION_ENABLED)
 │   │   │   └── status.py           # GET /api/status, GET /api/telemetry
 │   │   ├── services/
 │   │   │   ├── drone_manager.py    # Singleton Tello wrapper + asyncio.Lock + MockTello
 │   │   │   ├── telemetry_service.py # Background 4Hz polling + pub-sub broadcasting
-│   │   │   └── flight_recorder.py  # SQLite flight log; subscribes to telemetry + command log
+│   │   │   ├── flight_recorder.py  # SQLite flight log; subscribes to telemetry + command log
+│   │   │   ├── detector.py         # Detector protocol + lazy-imported YoloDetector (optional dep)
+│   │   │   ├── tracking.py         # Pure follow-target controller (box -> stick velocities)
+│   │   │   └── vision_service.py   # Detection loop, broadcast, tracking; yields to pilot override
 │   │   └── models/
 │   │       ├── commands.py         # Pydantic request/response schemas with validation
 │   │       └── telemetry.py        # Telemetry data models
@@ -107,6 +111,8 @@ cd frontend && npx vitest run                   # Frontend tests (CI mode)
 ## Key Design Constraints
 
 - **Command serialization**: Tello SDK processes one command at a time. `DroneManager` uses `asyncio.Lock` to serialize all commands. Emergency bypasses the lock for instant response.
+- **Pilot override**: anything that drives the drone automatically (currently person tracking) must register with `DroneManager.add_override_callback` and send sticks via `send_rc(..., source="<name>")`. Every pilot command (and so every sequence step) calls `_notify_override` before reaching the drone, and automation must stop sending the moment it fires. New pilot-facing commands on `DroneManager` need the same call.
+- **Vision is optional**: `ultralytics` is never imported at module level. Tests use a fake `Detector`; the real model is not exercised by the test suite.
 - **Mock mode**: Set `TELLO_USE_MOCK_DRONE=true` to run without a physical drone. MockTello generates placeholder video frames and simulates all telemetry.
 - **Video via MJPEG over HTTP** (`multipart/x-mixed-replace`). Frontend renders with `<img src="/api/video/stream" />`.
 - **Telemetry via WebSocket push** at ~4 Hz from a background polling task — not client-polled.

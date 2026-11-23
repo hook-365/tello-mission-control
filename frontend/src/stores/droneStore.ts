@@ -3,6 +3,7 @@ import type {
   ApiResponse,
   CommandLogEntry,
   ConnectionStatus,
+  DetectionsData,
   KeyboardMode,
   MediaEvent,
   MediaItem,
@@ -11,10 +12,12 @@ import type {
   Sequence,
   SequenceProgress,
   TelemetryData,
+  VisionState,
 } from '@/types/drone';
 import * as api from '@/lib/api';
 
 const MAX_LOG_ENTRIES = 200;
+const VISION_OFF: VisionState = { available: false, detecting: false, tracking: false };
 
 export const NOT_RECORDING: RecordingStatus = { recording: false, name: null, elapsed_s: 0, started_at: null };
 
@@ -108,6 +111,13 @@ interface DroneStore {
   // Alerts
   alertsMuted: boolean;
   toggleAlertsMuted: () => void;
+
+  // Vision (optional backend feature: detection overlay + tracking)
+  vision: VisionState;
+  setVision: (state: VisionState | null) => void;
+  detections: DetectionsData | null;
+  setDetections: (data: DetectionsData) => void;
+
 
   // UI state
   commandLogCollapsed: boolean;
@@ -224,6 +234,18 @@ export const useDroneStore = create<DroneStore>((set, get) => ({
   alertsMuted: false,
   toggleAlertsMuted: () => set((s) => ({ alertsMuted: !s.alertsMuted })),
 
+  // Vision
+  vision: VISION_OFF,
+  setVision: (state) => set(state ? { vision: state } : {}),
+  detections: null,
+  // Each frame also carries the live on/off flags, so a tracking cancel shows at once.
+  setDetections: (data) =>
+    set((s) => ({
+      detections: data.detecting ? data : null,
+      vision: { ...s.vision, detecting: data.detecting, tracking: data.tracking },
+    })),
+
+
   // UI state
   commandLogCollapsed: false,
   toggleCommandLog: () => set((s) => ({ commandLogCollapsed: !s.commandLogCollapsed })),
@@ -256,6 +278,13 @@ export const useDroneStore = create<DroneStore>((set, get) => ({
         // Start video stream (fire-and-forget, non-blocking)
         api.startVideoStream().catch(() => {});
         get().refreshMedia();
+        // Is the optional vision feature present? Probing it must never fail the
+        // connection, so both sync and async errors just leave the buttons hidden.
+        try {
+          api.getVision().then((vision) => set({ vision })).catch(() => {});
+        } catch {
+          // Non-critical
+        }
         // Fetch available sequences
         try {
           const sequences = await api.getSequences();
@@ -292,6 +321,8 @@ export const useDroneStore = create<DroneStore>((set, get) => ({
       previewMode: false,
       recording: NOT_RECORDING,
       galleryOpen: false,
+      vision: VISION_OFF,
+      detections: null,
     });
   },
 
