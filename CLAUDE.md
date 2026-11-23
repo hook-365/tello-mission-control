@@ -63,6 +63,8 @@ python -m pytest tests/test_control.py          # API integration tests
 python -m pytest tests/test_video.py            # Video streaming tests
 python -m pytest tests/test_telemetry.py        # WebSocket tests
 
+cd mcp_server && .venv/bin/python -m pytest tests   # MCP server tests (separate venv)
+
 cd frontend && npx vitest                       # Frontend tests
 cd frontend && npx vitest run                   # Frontend tests (CI mode)
 ```
@@ -94,6 +96,7 @@ cd frontend && npx vitest run                   # Frontend tests (CI mode)
 │   ├── Dockerfile                  # Multi-stage: Node build → Nginx runtime
 │   ├── nginx.conf                  # SPA fallback + API/WS/MJPEG reverse proxy
 │   └── src/
+├── mcp_server/                     # MCP server: thin REST client, own venv (mcp SDK v2 conflicts with backend pins)
 ├── sample_drone_integration/       # djitellopy reference scripts for developers
 ├── docs/                           # PRD & Architecture docs
 ├── docker-compose.yml              # Both services orchestration

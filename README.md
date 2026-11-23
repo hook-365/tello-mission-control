@@ -260,6 +260,17 @@ Command log events are also pushed over the same connection:
 }
 ```
 
+## Flying with Claude (MCP)
+
+`mcp_server/` exposes the drone as MCP tools — connect, takeoff, move, rotate, flip, land, telemetry, camera snapshot and the flight log:
+
+```bash
+cd mcp_server && python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
+claude mcp add tello -- "$PWD/.venv/bin/python" "$PWD/server.py"
+```
+
+Setup, HTTP transport and the tool list are in [`mcp_server/README.md`](mcp_server/README.md).
+
 ## Staying in Sync with the Original Project
 
 This copy is based on [thakorneyp11/tello-mission-control](https://github.com/thakorneyp11/tello-mission-control) and keeps its full history, so fixes from there can be pulled in later:
@@ -380,6 +391,7 @@ All environment variables are prefixed with `TELLO_`. See `.env.template` for th
 │   ├── Dockerfile
 │   ├── nginx.conf                  # Nginx reverse proxy config
 │   └── src/
+├── mcp_server/                     # MCP server (thin client of the backend API)
 ├── sample_drone_integration/       # djitellopy reference scripts
 │   ├── droneeyes.py                # Video streaming example
 │   ├── drone_control_simple.py     # Basic flight control example
@@ -403,7 +415,7 @@ A roadmap of where this project could go, roughly ordered from most practical to
 
 ### Phase 1 — Platform Hardening
 
-- **MCP Server** — Expose drone commands as MCP tools so Claude (or any MCP client) can fly the drone through natural language
+- ~~**MCP Server** — Expose drone commands as MCP tools so Claude (or any MCP client) can fly the drone through natural language~~ ✅ Done — see [`mcp_server/`](mcp_server/README.md)
 - ~~**Flight Logging & Replay** — Persist every command + telemetry snapshot to SQLite/TimescaleDB, replay sessions in the UI as a timeline~~ ✅ Done (SQLite) — see [Flight Log & Replay](#flight-log--replay)
 - **Gamepad Support** — Map PS5/Xbox controllers via the Gamepad API to `send_rc_control()` for proper analog stick flying
 - **WebRTC Video** — Replace MJPEG with WebRTC for lower latency, better compression, and future peer-to-peer streaming
