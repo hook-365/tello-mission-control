@@ -1,6 +1,8 @@
 import type {
   ApiResponse,
   ConnectResponse,
+  FlightDetail,
+  FlightSummary,
   FlipDirection,
   MoveDirection,
   RotateDirection,
@@ -105,4 +107,22 @@ export function startVideoStream(): Promise<ApiResponse> {
 
 export function stopVideoStream(): Promise<ApiResponse> {
   return post<ApiResponse>('/api/video/stream/stop');
+}
+
+export function getFlights(): Promise<FlightSummary[]> {
+  return get<FlightSummary[]>('/api/flights');
+}
+
+export function getFlight(id: number): Promise<FlightDetail> {
+  return get<FlightDetail>(`/api/flights/${id}`);
+}
+
+export async function deleteFlight(id: number): Promise<ApiResponse> {
+  try {
+    const res = await fetch(`/api/flights/${id}`, { method: 'DELETE' });
+    if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+    return await res.json();
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Network error' };
+  }
 }

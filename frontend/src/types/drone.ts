@@ -62,3 +62,23 @@ export interface WsMessage {
   data: TelemetryData | CommandLogEntry | SequenceProgress;
   timestamp?: string;
 }
+
+export interface FlightSummary {
+  id: number;
+  started_at: string;
+  ended_at: string | null;
+  telemetry_frames: number;
+  commands: number;
+  /** True while this session is still being recorded. */
+  active: boolean;
+}
+
+export interface TelemetrySample {
+  timestamp: string;
+  data: TelemetryData;
+}
+
+export interface FlightDetail extends FlightSummary {
+  telemetry: TelemetrySample[];
+  command_log: CommandLogEntry[];
+}

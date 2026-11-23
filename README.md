@@ -167,6 +167,10 @@ python -m pytest -v    # 54 tests, all use MockTello (no drone needed)
 | POST | `/api/video/stream/stop` | Stop video stream |
 | POST | `/api/video/snapshot` | Capture single JPEG frame |
 | GET | `/api/status` | `{connected, flying, streaming, battery}` |
+| GET | `/api/telemetry` | Latest telemetry snapshot (same fields as the WebSocket frame) |
+| GET | `/api/flights` | Recorded flights, newest first |
+| GET | `/api/flights/{id}` | One flight with its full telemetry and command log |
+| DELETE | `/api/flights/{id}` | Delete a recorded flight |
 | GET | `/api/sequences` | List flight sequences (stub) |
 | WS | `/api/ws/telemetry` | Telemetry push (~4Hz) + command logs |
 | WS | `/api/ws/control` | Stick input stream: send `{lr, fb, ud, yaw}` frames (~20Hz) |
@@ -207,6 +211,12 @@ python -m pytest -v    # 54 tests, all use MockTello (no drone needed)
 
 Stick input pauses while the browser tab is in the background, which trips the dead-man timer.
 
+### Flight Log & Replay
+
+Every connection is recorded to a SQLite file: each telemetry frame (~4 Hz) and every command, grouped into one session from connect to disconnect. Open the clock icon in the status bar to list recorded flights, then pick one to scrub or play back its telemetry alongside the commands that were issued.
+
+The log lives at `TELLO_FLIGHT_LOG_PATH` (`data/flights.db`; with Docker, `./data` on the host). It grows by roughly 3 MB per hour connected and is never pruned automatically — delete flights from the UI or the API. If the file can't be opened the backend logs an error and carries on without recording.
+
 ## Configuration
 
 All environment variables are prefixed with `TELLO_`. See `.env.template` for the full list with defaults.
@@ -219,6 +229,8 @@ All environment variables are prefixed with `TELLO_`. See `.env.template` for th
 | `TELLO_FRONTEND_PORT` | `3000` | Frontend server port (Docker) |
 | `TELLO_TELEMETRY_POLL_HZ` | `4.0` | Telemetry polling frequency |
 | `TELLO_RC_TIMEOUT_MS` | `500` | Hover if stick input is not refreshed within this window |
+| `TELLO_FLIGHT_LOG_ENABLED` | `true` | Record telemetry and commands for every connection |
+| `TELLO_FLIGHT_LOG_PATH` | `data/flights.db` | SQLite file for the flight log |
 | `TELLO_VIDEO_FPS` | `30` | Video stream frame rate |
 | `TELLO_VIDEO_JPEG_QUALITY` | `70` | JPEG compression quality |
 | `TELLO_CORS_ORIGINS` | `["http://localhost:3000","http://localhost:5173"]` | Allowed CORS origins |
@@ -264,7 +276,7 @@ A roadmap of where this project could go, roughly ordered from most practical to
 ### Phase 1 — Platform Hardening
 
 - **MCP Server** — Expose drone commands as MCP tools so Claude (or any MCP client) can fly the drone through natural language
-- **Flight Logging & Replay** — Persist every command + telemetry snapshot to SQLite/TimescaleDB, replay sessions in the UI as a timeline
+- ~~**Flight Logging & Replay** — Persist every command + telemetry snapshot to SQLite/TimescaleDB, replay sessions in the UI as a timeline~~ ✅ Done (SQLite) — see [Flight Log & Replay](#flight-log--replay)
 - ~~**Gamepad Support** — Map PS5/Xbox controllers via the Gamepad API to `send_rc_control()` for proper analog stick flying~~ ✅ Done — see [Continuous Control & Gamepad](#continuous-control--gamepad)
 - **WebRTC Video** — Replace MJPEG with WebRTC for lower latency, better compression, and future peer-to-peer streaming
 

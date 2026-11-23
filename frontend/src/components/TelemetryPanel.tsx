@@ -1,8 +1,16 @@
 import { useDroneStore } from '@/stores/droneStore';
 import { formatFlightTime, batteryBarColor } from '@/lib/format';
+import type { TelemetryData } from '@/types/drone';
 
-export default function TelemetryPanel() {
-  const telemetry = useDroneStore((s) => s.telemetry);
+interface TelemetryPanelProps {
+  /** Show this frame instead of live telemetry (used for flight replay). */
+  data?: TelemetryData | null;
+  title?: string;
+}
+
+export default function TelemetryPanel({ data, title = 'Telemetry' }: TelemetryPanelProps = {}) {
+  const live = useDroneStore((s) => s.telemetry);
+  const telemetry = data !== undefined ? data : live;
 
   const battery = telemetry?.battery ?? null;
   const height = telemetry?.height ?? null;
@@ -23,7 +31,7 @@ export default function TelemetryPanel() {
 
   return (
     <div className="hud-panel animate-fade-in-up w-[200px] !p-3 max-h-[calc(50vh-32px)] overflow-y-auto">
-      <h2 className="hud-label mb-2">Telemetry</h2>
+      <h2 className="hud-label mb-2">{title}</h2>
 
       <div className="flex flex-col">
         {/* Battery */}

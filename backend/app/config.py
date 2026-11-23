@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     # Telemetry
     telemetry_poll_hz: float = 4.0
 
+    # Flight log (SQLite): every telemetry frame and command, per connection
+    flight_log_enabled: bool = True
+    flight_log_path: str = "data/flights.db"
+
     # Video
     video_fps: int = 30
     video_jpeg_quality: int = 70

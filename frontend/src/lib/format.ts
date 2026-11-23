@@ -29,3 +29,10 @@ export function formatFlightTime(seconds: number): string {
   const s = seconds % 60;
   return `${m}:${pad(s)}`;
 }
+
+/** Whole seconds between two ISO timestamps (0 if either is missing or out of order). */
+export function secondsBetween(startIso: string, endIso: string | null | undefined): number {
+  if (!endIso) return 0;
+  const ms = new Date(endIso).getTime() - new Date(startIso).getTime();
+  return Number.isFinite(ms) && ms > 0 ? Math.round(ms / 1000) : 0;
+}

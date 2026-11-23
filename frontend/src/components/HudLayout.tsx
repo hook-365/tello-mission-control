@@ -5,11 +5,13 @@ import CommandLog from '@/components/CommandLog';
 import FlightControls from '@/components/FlightControls';
 import ActionButtons from '@/components/ActionButtons';
 import SequenceModal from '@/components/SequenceModal';
+import FlightsModal from '@/components/FlightsModal';
 import { useDroneStore } from '@/stores/droneStore';
 import * as api from '@/lib/api';
 
 export default function HudLayout() {
   const [sequenceModalOpen, setSequenceModalOpen] = useState(false);
+  const [flightsModalOpen, setFlightsModalOpen] = useState(false);
   const sendCommand = useDroneStore((s) => s.sendCommand);
 
   return (
@@ -33,7 +35,7 @@ export default function HudLayout() {
 
         {/* StatusBar + CommandLog stacked together in top-right */}
         <div className="pointer-events-auto self-start justify-self-end flex flex-col gap-2" style={{ gridArea: 'status' }}>
-          <StatusBar />
+          <StatusBar onOpenFlights={() => setFlightsModalOpen(true)} />
           <CommandLog />
         </div>
 
@@ -54,6 +56,8 @@ export default function HudLayout() {
           sendCommand(() => api.runSequence(id));
         }}
       />
+
+      <FlightsModal isOpen={flightsModalOpen} onClose={() => setFlightsModalOpen(false)} />
     </>
   );
 }

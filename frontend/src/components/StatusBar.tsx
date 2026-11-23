@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { Camera, Gamepad2, Settings, LogOut } from 'lucide-react';
+import { Camera, Gamepad2, History, Settings, LogOut } from 'lucide-react';
 import { useDroneStore } from '@/stores/droneStore';
 import * as api from '@/lib/api';
 import { pad, batteryTextColor } from '@/lib/format';
@@ -11,7 +11,11 @@ const STATUS_DOT_CLASS: Record<string, string> = {
   error: 'bg-danger',
 };
 
-export default function StatusBar() {
+interface StatusBarProps {
+  onOpenFlights?: () => void;
+}
+
+export default function StatusBar({ onOpenFlights }: StatusBarProps = {}) {
   const connectionStatus = useDroneStore((s) => s.connectionStatus);
   const isFlying = useDroneStore((s) => s.isFlying);
   const previewMode = useDroneStore((s) => s.previewMode);
@@ -89,6 +93,18 @@ export default function StatusBar() {
         aria-label="Take Snapshot"
       >
         <Camera size={18} strokeWidth={1.5} />
+      </button>
+
+      {/* Flight log */}
+      <button
+        type="button"
+        className="control-btn p-2"
+        disabled={previewMode || !onOpenFlights}
+        onClick={onOpenFlights}
+        aria-label="Flight log"
+        title="Recorded flights"
+      >
+        <History size={18} strokeWidth={1.5} />
       </button>
 
       {/* Settings button (placeholder) */}
