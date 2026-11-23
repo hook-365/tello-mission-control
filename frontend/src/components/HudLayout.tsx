@@ -7,9 +7,11 @@ import ActionButtons from '@/components/ActionButtons';
 import SequenceBuilder from '@/components/SequenceBuilder';
 import FlightAlerts from '@/components/FlightAlerts';
 import MediaGallery from '@/components/MediaGallery';
+import FlightsModal from '@/components/FlightsModal';
 
 export default function HudLayout() {
   const [sequencerOpen, setSequencerOpen] = useState(false);
+  const [flightsModalOpen, setFlightsModalOpen] = useState(false);
 
   return (
     <>
@@ -32,7 +34,7 @@ export default function HudLayout() {
 
         {/* StatusBar + CommandLog stacked together in top-right */}
         <div className="pointer-events-auto self-start justify-self-end flex flex-col gap-2" style={{ gridArea: 'status' }}>
-          <StatusBar />
+          <StatusBar onOpenFlights={() => setFlightsModalOpen(true)} />
           <CommandLog />
         </div>
 
@@ -51,6 +53,8 @@ export default function HudLayout() {
       <MediaGallery />
 
       <SequenceBuilder isOpen={sequencerOpen} onClose={() => setSequencerOpen(false)} />
+
+      <FlightsModal isOpen={flightsModalOpen} onClose={() => setFlightsModalOpen(false)} />
     </>
   );
 }

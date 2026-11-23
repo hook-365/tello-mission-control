@@ -80,10 +80,12 @@ cd frontend && npx vitest run                   # Frontend tests (CI mode)
 │   │   │   ├── video.py            # GET /api/video/stream (MJPEG), POST /api/video/snapshot
 │   │   │   ├── telemetry.py        # WS /api/ws/telemetry
 │   │   │   ├── sequences.py        # GET /api/sequences (stub)
-│   │   │   └── status.py           # GET /api/status
+│   │   │   ├── flights.py          # GET/DELETE /api/flights (recorded sessions)
+│   │   │   └── status.py           # GET /api/status, GET /api/telemetry
 │   │   ├── services/
 │   │   │   ├── drone_manager.py    # Singleton Tello wrapper + asyncio.Lock + MockTello
-│   │   │   └── telemetry_service.py # Background 4Hz polling + pub-sub broadcasting
+│   │   │   ├── telemetry_service.py # Background 4Hz polling + pub-sub broadcasting
+│   │   │   └── flight_recorder.py  # SQLite flight log; subscribes to telemetry + command log
 │   │   └── models/
 │   │       ├── commands.py         # Pydantic request/response schemas with validation
 │   │       └── telemetry.py        # Telemetry data models

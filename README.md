@@ -306,6 +306,10 @@ cd ../frontend && npx vitest run   # 109 frontend tests
 | POST | `/api/control/rc` | One stick update (body: `{lr, fb, ud, yaw}`, each -100..100); must be flying |
 | WS | `/api/ws/rc` | Stream stick updates as `{lr, fb, ud, yaw}` JSON; replies `{"type":"rc_status"}` when accepted/refused changes. Hovers if updates stop for 0.5 s or the socket closes |
 | GET | `/api/status` | `{connected, flying, streaming, battery, wifi_snr}` |
+| GET | `/api/telemetry` | Latest telemetry snapshot (same fields as the WebSocket frame) |
+| GET | `/api/flights` | Recorded flights, newest first |
+| GET | `/api/flights/{id}` | One flight with its full telemetry and command log |
+| DELETE | `/api/flights/{id}` | Delete a recorded flight |
 | GET | `/api/sequences` | List flight sequences (see [Sequencer API](#sequencer-api)) |
 | WS | `/api/ws/telemetry` | Telemetry push (~4Hz), command logs, sequence progress and `media` events (photo saved, recording started/stopped, deleted) |
 
@@ -318,6 +322,12 @@ cd ../frontend && npx vitest run   # 109 frontend tests
 | Rotate direction | `cw`, `ccw` |
 | Rotate angle | 1–360° |
 
+### Flight Log & Replay
+
+Every connection is recorded to a SQLite file: each telemetry frame (~4 Hz) and every command, grouped into one session from connect to disconnect. Open the clock icon in the status bar to list recorded flights, then pick one to scrub or play back its telemetry alongside the commands that were issued.
+
+The log lives at `TELLO_FLIGHT_LOG_PATH` (`data/flights.db`; with Docker, `./data` on the host). It grows by roughly 3 MB per hour connected and is never pruned automatically — delete flights from the UI or the API. If the file can't be opened the backend logs an error and carries on without recording.
+
 ## Configuration
 
 All environment variables are prefixed with `TELLO_`. See `.env.template` for the full list with defaults.
@@ -329,6 +339,8 @@ All environment variables are prefixed with `TELLO_`. See `.env.template` for th
 | `TELLO_API_PORT` | `8000` | Backend server port |
 | `TELLO_FRONTEND_PORT` | `3000` | Frontend server port (Docker) |
 | `TELLO_TELEMETRY_POLL_HZ` | `4.0` | Telemetry polling frequency |
+| `TELLO_FLIGHT_LOG_ENABLED` | `true` | Record telemetry and commands for every connection |
+| `TELLO_FLIGHT_LOG_PATH` | `data/flights.db` | SQLite file for the flight log |
 | `TELLO_VIDEO_FPS` | `30` | Video stream frame rate |
 | `TELLO_VIDEO_JPEG_QUALITY` | `70` | JPEG compression quality |
 | `TELLO_CORS_ORIGINS` | `["http://localhost:3000","http://localhost:5173"]` | Allowed CORS origins |
@@ -392,7 +404,7 @@ A roadmap of where this project could go, roughly ordered from most practical to
 ### Phase 1 — Platform Hardening
 
 - **MCP Server** — Expose drone commands as MCP tools so Claude (or any MCP client) can fly the drone through natural language
-- **Flight Logging & Replay** — Persist every command + telemetry snapshot to SQLite/TimescaleDB, replay sessions in the UI as a timeline
+- ~~**Flight Logging & Replay** — Persist every command + telemetry snapshot to SQLite/TimescaleDB, replay sessions in the UI as a timeline~~ ✅ Done (SQLite) — see [Flight Log & Replay](#flight-log--replay)
 - **Gamepad Support** — Map PS5/Xbox controllers via the Gamepad API to `send_rc_control()` for proper analog stick flying
 - **WebRTC Video** — Replace MJPEG with WebRTC for lower latency, better compression, and future peer-to-peer streaming
 

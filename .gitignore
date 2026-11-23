@@ -35,6 +35,9 @@ frontend/dist/
 .env.local
 .env.*.local
 
+# Flight log
+data/
+
 # Docker
 *.log
 

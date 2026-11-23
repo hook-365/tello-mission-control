@@ -10,9 +10,16 @@ os.environ.setdefault("TELLO_MEDIA_DIR", tempfile.mkdtemp(prefix="tello-media-te
 import pytest
 from fastapi.testclient import TestClient
 
+from app.config import settings
 from app.main import app
 from app.services.drone_manager import DroneManager, MockTello
 from app.services.telemetry_service import TelemetryService
+
+
+@pytest.fixture(autouse=True)
+def isolated_flight_log(tmp_path, monkeypatch):
+    """Point the flight log at a per-test temp file so tests never touch real data."""
+    monkeypatch.setattr(settings, "flight_log_path", str(tmp_path / "flights.db"))
 
 
 @pytest.fixture

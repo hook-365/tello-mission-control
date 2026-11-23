@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Camera, Circle, Images, Square, LogOut, Wifi, WifiLow, WifiOff, WifiZero } from 'lucide-react';
+import { Camera, Circle, History, Images, Square, LogOut, Wifi, WifiLow, WifiOff, WifiZero } from 'lucide-react';
 import { useDroneStore } from '@/stores/droneStore';
 import * as api from '@/lib/api';
 import { batteryTextColor } from '@/lib/format';
@@ -26,7 +26,11 @@ const STATUS_DOT_CLASS: Record<string, string> = {
   error: 'bg-danger',
 };
 
-export default function StatusBar() {
+interface StatusBarProps {
+  onOpenFlights?: () => void;
+}
+
+export default function StatusBar({ onOpenFlights }: StatusBarProps = {}) {
   const connectionStatus = useDroneStore((s) => s.connectionStatus);
   const previewMode = useDroneStore((s) => s.previewMode);
   const telemetry = useDroneStore((s) => s.telemetry);
@@ -126,6 +130,18 @@ export default function StatusBar() {
         title="Take a photo (saved to the gallery)"
       >
         <Camera size={18} strokeWidth={1.5} />
+      </button>
+
+      {/* Flight log */}
+      <button
+        type="button"
+        className="control-btn p-2"
+        disabled={previewMode || !onOpenFlights}
+        onClick={onOpenFlights}
+        aria-label="Flight log"
+        title="Recorded flights"
+      >
+        <History size={18} strokeWidth={1.5} />
       </button>
 
       {/* Record a clip */}

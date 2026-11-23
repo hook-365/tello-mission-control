@@ -10,6 +10,8 @@ from app.services.drone_manager import DroneManager
 from app.services.media import MediaService
 from app.services.sequence_runner import SequenceRunner
 from app.services.sequence_store import SequenceStore
+from app.routers import flights
+from app.services.flight_recorder import FlightRecorder
 from app.services.telemetry_service import TelemetryService
 
 logging.basicConfig(level=logging.INFO)
@@ -27,6 +29,18 @@ async def lifespan(app: FastAPI):
     app.state.sequence_store = SequenceStore(settings.sequences_dir)
     app.state.media_service = MediaService(dm, settings.media_dir)
     app.state.sequence_runner = SequenceRunner(dm, app.state.media_service)
+    recorder = None
+    if settings.flight_log_enabled:
+        try:
+            recorder = FlightRecorder(settings.flight_log_path)
+            await recorder.start()
+            ts.subscribe(recorder.on_telemetry)
+            dm.add_command_log_callback(recorder.on_command)
+        except Exception as e:
+            # A read-only or missing data dir must not stop the drone from flying.
+            logger.error("Flight logging disabled: cannot open %s: %s", settings.flight_log_path, e)
+            recorder = None
+    app.state.flight_recorder = recorder
     await ts.start()
     logger.info("Backend ready. Mock mode: %s", settings.use_mock_drone)
 
@@ -38,6 +52,8 @@ async def lifespan(app: FastAPI):
     await app.state.media_service.shutdown()
     await ts.stop()
     await dm.shutdown()
+    if recorder:
+        await recorder.stop()
     logger.info("Shutdown complete.")
 
 
@@ -59,6 +75,7 @@ app.include_router(control.router)
 app.include_router(telemetry.router)
 app.include_router(video.router)
 app.include_router(sequences.router)
+app.include_router(flights.router)
 app.include_router(status.router)
 app.include_router(rc.router)
 app.include_router(media.router)
