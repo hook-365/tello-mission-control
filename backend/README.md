@@ -144,6 +144,8 @@ docker compose up --build
 | POST | `/api/control/emergency` | — | `{ ok, message }` |
 | POST | `/api/control/move` | `{ direction, distance_cm }` | `{ ok, message }` |
 | POST | `/api/control/rotate` | `{ direction, angle_deg }` | `{ ok, message }` |
+| POST | `/api/control/flip` | `{ direction }` | `{ ok, message }` |
+| POST | `/api/control/rc` | `{ lr, fb, ud, yaw }` (each -100..100) | `{ ok, message }` |
 
 ### Status Endpoint
 

@@ -76,9 +76,9 @@ cd frontend && npx vitest run                   # Frontend tests (CI mode)
 │   │   ├── main.py                 # FastAPI app, lifespan, CORS, router wiring
 │   │   ├── config.py               # pydantic-settings with TELLO_ env prefix
 │   │   ├── routers/
-│   │   │   ├── control.py          # POST /api/control/* (connect, takeoff, move, etc.)
+│   │   │   ├── control.py          # POST /api/control/* (connect, takeoff, move, flip, rc, etc.)
 │   │   │   ├── video.py            # GET /api/video/stream (MJPEG), POST /api/video/snapshot
-│   │   │   ├── telemetry.py        # WS /api/ws/telemetry
+│   │   │   ├── telemetry.py        # WS /api/ws/telemetry, WS /api/ws/control (stick input)
 │   │   │   ├── sequences.py        # GET /api/sequences (stub)
 │   │   │   └── status.py           # GET /api/status
 │   │   ├── services/
@@ -87,7 +87,7 @@ cd frontend && npx vitest run                   # Frontend tests (CI mode)
 │   │   └── models/
 │   │       ├── commands.py         # Pydantic request/response schemas with validation
 │   │       └── telemetry.py        # Telemetry data models
-│   └── tests/                      # pytest (54 tests)
+│   └── tests/                      # pytest
 ├── frontend/                       # React + Vite + TailwindCSS
 │   ├── Dockerfile                  # Multi-stage: Node build → Nginx runtime
 │   ├── nginx.conf                  # SPA fallback + API/WS/MJPEG reverse proxy
@@ -101,7 +101,7 @@ cd frontend && npx vitest run                   # Frontend tests (CI mode)
 
 ## Key Design Constraints
 
-- **Command serialization**: Tello SDK processes one command at a time. `DroneManager` uses `asyncio.Lock` to serialize all commands. Emergency bypasses the lock for instant response.
+- **Command serialization**: Tello SDK processes one command at a time. `DroneManager` uses `asyncio.Lock` to serialize all commands. Emergency bypasses the lock for instant response. Stick input (`send_rc`) also bypasses it — RC packets are unacknowledged, so they must not queue behind a blocking move — and is guarded by a dead-man watchdog (`TELLO_RC_TIMEOUT_MS`) that zeroes stale input.
 - **Mock mode**: Set `TELLO_USE_MOCK_DRONE=true` to run without a physical drone. MockTello generates placeholder video frames and simulates all telemetry.
 - **Video via MJPEG over HTTP** (`multipart/x-mixed-replace`). Frontend renders with `<img src="/api/video/stream" />`.
 - **Telemetry via WebSocket push** at ~4 Hz from a background polling task — not client-polled.

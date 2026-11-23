@@ -3,7 +3,9 @@ from fastapi import APIRouter, HTTPException, Request
 from app.models.commands import (
     CommandResponse,
     ConnectResponse,
+    FlipRequest,
     MoveRequest,
+    RcRequest,
     RotateRequest,
 )
 from app.services.drone_manager import DroneNotConnectedError, DroneNotFlyingError
@@ -92,3 +94,32 @@ async def rotate(request: Request, body: RotateRequest):
         raise HTTPException(status_code=409, detail="Drone is not flying")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Rotate failed: {e}")
+
+
+@router.post("/flip", response_model=CommandResponse)
+async def flip(request: Request, body: FlipRequest):
+    dm = _get_dm(request)
+    try:
+        result = await dm.flip(body.direction)
+        return CommandResponse(**result)
+    except DroneNotConnectedError:
+        raise HTTPException(status_code=409, detail="Drone is not connected")
+    except DroneNotFlyingError:
+        raise HTTPException(status_code=409, detail="Drone is not flying")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Flip failed: {e}")
+
+
+@router.post("/rc", response_model=CommandResponse)
+async def rc(request: Request, body: RcRequest):
+    """Set stick velocities. Non-zero input must be refreshed or the drone hovers."""
+    dm = _get_dm(request)
+    try:
+        result = await dm.send_rc(body.lr, body.fb, body.ud, body.yaw)
+        return CommandResponse(**result)
+    except DroneNotConnectedError:
+        raise HTTPException(status_code=409, detail="Drone is not connected")
+    except DroneNotFlyingError:
+        raise HTTPException(status_code=409, detail="Drone is not flying")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"RC failed: {e}")

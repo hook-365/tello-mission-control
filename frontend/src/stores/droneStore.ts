@@ -45,6 +45,13 @@ interface DroneStore {
   rotateAngle: number;
   setRotateAngle: (a: number) => void;
 
+  // Gamepad (continuous stick control)
+  gamepadConnected: boolean;
+  setGamepadConnected: (connected: boolean) => void;
+  /** Max stick velocity, 10-100 (% of the drone's top speed). */
+  rcSpeedCap: number;
+  setRcSpeedCap: (cap: number) => void;
+
   // UI state
   commandLogCollapsed: boolean;
   toggleCommandLog: () => void;
@@ -93,6 +100,12 @@ export const useDroneStore = create<DroneStore>((set, get) => ({
   setMoveDistance: (d) => set({ moveDistance: Math.max(20, Math.min(500, d)) }),
   rotateAngle: 90,
   setRotateAngle: (a) => set({ rotateAngle: Math.max(1, Math.min(360, a)) }),
+
+  // Gamepad
+  gamepadConnected: false,
+  setGamepadConnected: (connected) => set({ gamepadConnected: connected }),
+  rcSpeedCap: 50,
+  setRcSpeedCap: (cap) => set({ rcSpeedCap: Math.max(10, Math.min(100, cap)) }),
 
   // UI state
   commandLogCollapsed: false,

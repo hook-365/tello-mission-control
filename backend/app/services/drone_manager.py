@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Any, Callable
 
 from app.config import settings
-from app.models.commands import MoveDirection, RotateDirection
+from app.models.commands import FlipDirection, MoveDirection, RotateDirection
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,8 @@ class MockTello:
         self._barometer = 0.0
         self._temp_high = 65.0
         self._temp_low = 60.0
+        self.rc_commands: list[tuple[int, int, int, int]] = []
+        self.flips: list[str] = []
 
     def _reset_flight_state(self) -> None:
         self._flying = False
@@ -106,6 +109,14 @@ class MockTello:
     def rotate_counter_clockwise(self, x: int) -> None:
         self._yaw = (self._yaw - x) % 360
         logger.info("MockTello: rotate_ccw %ddeg", x)
+
+    def send_rc_control(self, lr: int, fb: int, ud: int, yaw: int) -> None:
+        self.rc_commands.append((lr, fb, ud, yaw))
+        self._speed_x, self._speed_y, self._speed_z = lr, fb, ud
+
+    def flip(self, direction: str) -> None:
+        self.flips.append(direction)
+        logger.info("MockTello: flip %s", direction)
 
     # -- Telemetry getters (matching djitellopy.Tello API) --
 
@@ -203,6 +214,10 @@ class DroneManager:
         self._streaming: bool = False
         self._frame_read: Any | None = None
         self._command_log_callbacks: list[Callable] = []
+        # Continuous (RC) control state
+        self._rc_active: bool = False
+        self._rc_last_at: float = 0.0
+        self._rc_watchdog: asyncio.Task | None = None
 
     # -- Properties --
 
@@ -286,6 +301,7 @@ class DroneManager:
 
         await self.execute(self._tello.connect)
         self._connected = True
+        self._rc_watchdog = asyncio.create_task(self._rc_watchdog_loop())
         battery = await self.get_battery()
         await self._broadcast_command_log("connect", {}, "ok")
         return {"ok": True, "status": "connected", "battery": battery}
@@ -293,6 +309,8 @@ class DroneManager:
     async def disconnect(self) -> dict:
         if not self._connected:
             return {"ok": True, "status": "already_disconnected"}
+
+        await self._stop_rc_watchdog()
 
         if self._streaming:
             try:
@@ -326,6 +344,7 @@ class DroneManager:
 
     async def land(self) -> dict:
         self._require_connected()
+        self._rc_active = False
         await self.execute(self._tello.land)
         self._flying = False
         await self._broadcast_command_log("land", {}, "ok")
@@ -336,6 +355,7 @@ class DroneManager:
         if self._tello:
             await asyncio.to_thread(self._tello.emergency)
             self._flying = False
+            self._rc_active = False
         await self._broadcast_command_log("emergency", {}, "ok")
         return {"ok": True, "message": "Emergency stop executed"}
 
@@ -372,6 +392,69 @@ class DroneManager:
             "rotate", {"direction": direction.value, "angle_deg": angle_deg}, "ok"
         )
         return {"ok": True, "message": f"Rotated {direction.value} {angle_deg}°"}
+
+    # -- Flips --
+
+    async def flip(self, direction: FlipDirection) -> dict:
+        self._require_connected()
+        self._require_flying()
+        await self.execute(self._tello.flip, direction.value[0])
+        await self._broadcast_command_log("flip", {"direction": direction.value}, "ok")
+        return {"ok": True, "message": f"Flipped {direction.value}"}
+
+    # -- Continuous (RC) control --
+
+    @property
+    def rc_active(self) -> bool:
+        return self._rc_active
+
+    async def send_rc(self, lr: int, fb: int, ud: int, yaw: int) -> dict:
+        """Set stick velocities (-100..100 per channel).
+
+        Deliberately bypasses the command lock: the drone does not acknowledge
+        RC packets, so the send returns at once, and stick input must not queue
+        behind a blocking move. Non-zero input has to be refreshed within
+        ``rc_timeout_ms`` or the watchdog zeroes it and the drone hovers.
+        """
+        self._require_connected()
+        self._require_flying()
+        self._tello.send_rc_control(lr, fb, ud, yaw)
+        active = any((lr, fb, ud, yaw))
+        self._rc_last_at = time.monotonic()
+        if active != self._rc_active:
+            self._rc_active = active
+            await self._broadcast_command_log("rc_start" if active else "rc_stop", {}, "ok")
+        return {"ok": True, "message": "RC updated"}
+
+    async def stop_rc(self, reason: str = "rc_stop") -> None:
+        """Zero the sticks if they are live. Safe to call in any state."""
+        if not self._rc_active:
+            return
+        self._rc_active = False
+        if self._tello and self._flying:
+            self._tello.send_rc_control(0, 0, 0, 0)
+        await self._broadcast_command_log(reason, {}, "ok")
+
+    async def _rc_watchdog_loop(self) -> None:
+        timeout = settings.rc_timeout_ms / 1000
+        while True:
+            await asyncio.sleep(timeout / 4)
+            if self._rc_active and time.monotonic() - self._rc_last_at > timeout:
+                logger.warning("RC input stale for >%dms, hovering", settings.rc_timeout_ms)
+                try:
+                    await self.stop_rc("rc_timeout")
+                except Exception as e:
+                    logger.error("RC watchdog failed to zero sticks: %s", e)
+
+    async def _stop_rc_watchdog(self) -> None:
+        await self.stop_rc()
+        if self._rc_watchdog:
+            self._rc_watchdog.cancel()
+            try:
+                await self._rc_watchdog
+            except asyncio.CancelledError:
+                pass
+            self._rc_watchdog = None
 
     # -- Video streaming --
 

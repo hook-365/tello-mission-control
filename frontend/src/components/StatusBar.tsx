@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { Camera, Settings, LogOut } from 'lucide-react';
+import { Camera, Gamepad2, Settings, LogOut } from 'lucide-react';
 import { useDroneStore } from '@/stores/droneStore';
 import * as api from '@/lib/api';
 import { pad, batteryTextColor } from '@/lib/format';
@@ -17,6 +17,7 @@ export default function StatusBar() {
   const previewMode = useDroneStore((s) => s.previewMode);
   const telemetry = useDroneStore((s) => s.telemetry);
   const disconnect = useDroneStore((s) => s.disconnect);
+  const gamepadConnected = useDroneStore((s) => s.gamepadConnected);
 
   const canSnapshot = connectionStatus === 'connected' && isFlying && !previewMode;
   const battery = telemetry?.battery ?? null;
@@ -66,6 +67,18 @@ export default function StatusBar() {
 
       {/* Drone ID */}
       <span className="text-hud-secondary font-mono text-hud-sm">TELLO</span>
+
+      {/* Gamepad indicator (only while a controller is attached) */}
+      {gamepadConnected && (
+        <span
+          className="text-ok flex items-center"
+          role="status"
+          aria-label="Gamepad connected"
+          title="Gamepad connected — left stick: up/down + turn, right stick: move. A takeoff, B land, Back emergency."
+        >
+          <Gamepad2 size={18} strokeWidth={1.5} />
+        </span>
+      )}
 
       {/* Snapshot button */}
       <button

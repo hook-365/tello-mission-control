@@ -160,6 +160,8 @@ python -m pytest -v    # 54 tests, all use MockTello (no drone needed)
 | POST | `/api/control/emergency` | Emergency motor kill |
 | POST | `/api/control/move` | Move (body: `{direction, distance_cm}`) |
 | POST | `/api/control/rotate` | Rotate (body: `{direction, angle_deg}`) |
+| POST | `/api/control/flip` | Flip (body: `{direction}`) |
+| POST | `/api/control/rc` | Set stick velocities (body: `{lr, fb, ud, yaw}`) |
 | GET | `/api/video/stream` | MJPEG video stream |
 | POST | `/api/video/stream/start` | Start video stream |
 | POST | `/api/video/stream/stop` | Stop video stream |
@@ -167,6 +169,7 @@ python -m pytest -v    # 54 tests, all use MockTello (no drone needed)
 | GET | `/api/status` | `{connected, flying, streaming, battery}` |
 | GET | `/api/sequences` | List flight sequences (stub) |
 | WS | `/api/ws/telemetry` | Telemetry push (~4Hz) + command logs |
+| WS | `/api/ws/control` | Stick input stream: send `{lr, fb, ud, yaw}` frames (~20Hz) |
 
 ### Allowed Values
 
@@ -176,6 +179,33 @@ python -m pytest -v    # 54 tests, all use MockTello (no drone needed)
 | Move distance | 20–500 cm |
 | Rotate direction | `cw`, `ccw` |
 | Rotate angle | 1–360° |
+| Flip direction | `forward`, `back`, `left`, `right` |
+| RC channel (`lr`, `fb`, `ud`, `yaw`) | -100 to 100, omitted channels are 0 |
+
+### Continuous Control & Gamepad
+
+`move` and `rotate` are discrete: the drone flies a fixed distance and stops. For smooth flying, `rc` sets four stick velocities that stay in effect until changed:
+
+| Channel | Negative | Positive |
+|---------|----------|----------|
+| `lr` | left | right |
+| `fb` | back | forward |
+| `ud` | down | up |
+| `yaw` | counter-clockwise | clockwise |
+
+**Dead-man timer:** non-zero stick input must be refreshed within `TELLO_RC_TIMEOUT_MS` (default 500 ms). If the frames stop — browser tab closed, network drop, client crash — the backend zeroes the sticks and the drone hovers. Closing the `/api/ws/control` socket zeroes them immediately.
+
+**Gamepad:** plug in or pair any controller the browser's Gamepad API recognises (Xbox, PlayStation, etc.) and press a button once the HUD is open. A gamepad icon appears in the status bar and a *Stick speed* slider appears under Flight Controls (default 50% of top speed).
+
+| Input | Action |
+|-------|--------|
+| Left stick | Up / down, turn left / right |
+| Right stick | Forward / back, strafe left / right |
+| A / Cross | Takeoff |
+| B / Circle | Land |
+| Back / Select / Share | Emergency motor kill |
+
+Stick input pauses while the browser tab is in the background, which trips the dead-man timer.
 
 ## Configuration
 
@@ -188,6 +218,7 @@ All environment variables are prefixed with `TELLO_`. See `.env.template` for th
 | `TELLO_API_PORT` | `8000` | Backend server port |
 | `TELLO_FRONTEND_PORT` | `3000` | Frontend server port (Docker) |
 | `TELLO_TELEMETRY_POLL_HZ` | `4.0` | Telemetry polling frequency |
+| `TELLO_RC_TIMEOUT_MS` | `500` | Hover if stick input is not refreshed within this window |
 | `TELLO_VIDEO_FPS` | `30` | Video stream frame rate |
 | `TELLO_VIDEO_JPEG_QUALITY` | `70` | JPEG compression quality |
 | `TELLO_CORS_ORIGINS` | `["http://localhost:3000","http://localhost:5173"]` | Allowed CORS origins |
@@ -203,7 +234,7 @@ All environment variables are prefixed with `TELLO_`. See `.env.template` for th
 │   │   ├── routers/                # API endpoints
 │   │   ├── services/               # DroneManager, TelemetryService
 │   │   └── models/                 # Pydantic schemas
-│   └── tests/                      # pytest (44 tests)
+│   └── tests/                      # pytest
 ├── frontend/                       # React + Vite + TailwindCSS
 │   ├── Dockerfile
 │   ├── nginx.conf                  # Nginx reverse proxy config
@@ -224,6 +255,7 @@ All environment variables are prefixed with `TELLO_`. See `.env.template` for th
 - Keep battery above 30%
 - `/api/control/emergency` bypasses all locks — use if anything goes wrong
 - Disconnecting while airborne auto-lands first
+- Stick (RC) input that stops arriving is zeroed after 500 ms, so a lost client leaves the drone hovering
 
 ## Future Implementations
 
@@ -233,7 +265,7 @@ A roadmap of where this project could go, roughly ordered from most practical to
 
 - **MCP Server** — Expose drone commands as MCP tools so Claude (or any MCP client) can fly the drone through natural language
 - **Flight Logging & Replay** — Persist every command + telemetry snapshot to SQLite/TimescaleDB, replay sessions in the UI as a timeline
-- **Gamepad Support** — Map PS5/Xbox controllers via the Gamepad API to `send_rc_control()` for proper analog stick flying
+- ~~**Gamepad Support** — Map PS5/Xbox controllers via the Gamepad API to `send_rc_control()` for proper analog stick flying~~ ✅ Done — see [Continuous Control & Gamepad](#continuous-control--gamepad)
 - **WebRTC Video** — Replace MJPEG with WebRTC for lower latency, better compression, and future peer-to-peer streaming
 
 ### Phase 2 — Computer Vision

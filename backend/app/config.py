@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: list[str] = ["http://localhost:3000", "http://localhost:5173"]
 
+    # Continuous (RC) control: hover if no stick input arrives within this window
+    rc_timeout_ms: int = 500
+
     # Telemetry
     telemetry_poll_hz: float = 4.0
 

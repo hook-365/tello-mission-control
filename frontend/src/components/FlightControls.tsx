@@ -30,6 +30,9 @@ export default function FlightControls() {
     setRotateAngle,
     sendCommand,
     telemetry,
+    gamepadConnected,
+    rcSpeedCap,
+    setRcSpeedCap,
   } = useDroneStore();
 
   const disabled = !isFlying || commandPending;
@@ -190,6 +193,26 @@ export default function FlightControls() {
           onChange={(e) => setRotateAngle(Number(e.target.value))}
         />
       </div>
+
+      {/* Stick speed (only while a gamepad is attached) */}
+      {gamepadConnected && (
+        <div className="mt-2">
+          <div className="flex items-center justify-between mb-1">
+            <span className="hud-label">Stick speed</span>
+            <span className="font-mono text-hud-xs">{rcSpeedCap}%</span>
+          </div>
+          <input
+            type="range"
+            className="hud-slider"
+            aria-label="Stick speed"
+            min={10}
+            max={100}
+            step={5}
+            value={rcSpeedCap}
+            onChange={(e) => setRcSpeedCap(Number(e.target.value))}
+          />
+        </div>
+      )}
     </div>
   );
 }

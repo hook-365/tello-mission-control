@@ -1,6 +1,7 @@
 import { useDroneStore } from '@/stores/droneStore';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useKeyboard } from '@/hooks/useKeyboard';
+import { useGamepad } from '@/hooks/useGamepad';
 import ConnectionScreen from '@/components/ConnectionScreen';
 import VideoFeed from '@/components/VideoFeed';
 import Vignette from '@/components/Vignette';
@@ -13,6 +14,7 @@ export default function App() {
   // Side-effect hooks
   useWebSocket();
   useKeyboard();
+  useGamepad();
 
   const isConnected = connectionStatus === 'connected';
   const showEmergency = connectionStatus !== 'disconnected';
