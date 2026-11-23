@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { VIDEO_STREAM_URL } from '@/lib/api';
 import { useDroneStore } from '@/stores/droneStore';
+import DetectionOverlay from '@/components/DetectionOverlay';
 
 type FeedState = 'loading' | 'active' | 'error';
 
@@ -67,6 +68,8 @@ export default function VideoFeed() {
         onLoad={handleLoad}
         onError={handleError}
       />
+
+      {state === 'active' && <DetectionOverlay />}
 
       {state === 'loading' && (
         <div className="fixed inset-0 z-0 flex items-center justify-center bg-black">

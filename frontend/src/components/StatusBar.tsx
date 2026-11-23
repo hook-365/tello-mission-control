@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { Camera, Gamepad2, History, Settings, LogOut } from 'lucide-react';
+import { Camera, Crosshair, Gamepad2, History, ScanSearch, Settings, LogOut } from 'lucide-react';
 import { useDroneStore } from '@/stores/droneStore';
 import * as api from '@/lib/api';
 import { pad, batteryTextColor } from '@/lib/format';
@@ -22,6 +22,8 @@ export default function StatusBar({ onOpenFlights }: StatusBarProps = {}) {
   const telemetry = useDroneStore((s) => s.telemetry);
   const disconnect = useDroneStore((s) => s.disconnect);
   const gamepadConnected = useDroneStore((s) => s.gamepadConnected);
+  const vision = useDroneStore((s) => s.vision);
+  const setVision = useDroneStore((s) => s.setVision);
 
   const canSnapshot = connectionStatus === 'connected' && isFlying && !previewMode;
   const battery = telemetry?.battery ?? null;
@@ -94,6 +96,37 @@ export default function StatusBar({ onOpenFlights }: StatusBarProps = {}) {
       >
         <Camera size={18} strokeWidth={1.5} />
       </button>
+
+      {/* Vision toggles (only when the backend has the optional feature) */}
+      {vision.available && (
+        <>
+          <button
+            type="button"
+            className={`control-btn p-2 ${vision.detecting ? 'text-info border-info/40' : ''}`}
+            onClick={async () => setVision(await api.setDetecting(!vision.detecting))}
+            aria-label="Object detection"
+            aria-pressed={vision.detecting}
+            title={vision.detecting ? 'Stop object detection' : 'Detect objects in the video'}
+          >
+            <ScanSearch size={18} strokeWidth={1.5} />
+          </button>
+          <button
+            type="button"
+            className={`control-btn p-2 ${vision.tracking ? 'text-caution border-caution/40' : ''}`}
+            disabled={!isFlying && !vision.tracking}
+            onClick={async () => setVision(await api.setTracking(!vision.tracking))}
+            aria-label="Follow person"
+            aria-pressed={vision.tracking}
+            title={
+              vision.tracking
+                ? 'Stop following'
+                : 'Follow the nearest person — any stick, move or land command takes back control'
+            }
+          >
+            <Crosshair size={18} strokeWidth={1.5} />
+          </button>
+        </>
+      )}
 
       {/* Flight log */}
       <button

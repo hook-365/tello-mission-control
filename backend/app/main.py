@@ -1,3 +1,4 @@
+import importlib.util
 import logging
 from contextlib import asynccontextmanager
 
@@ -5,10 +6,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import control, flights, sequences, status, telemetry, video
+from app.routers import control, flights, sequences, status, telemetry, video, vision
 from app.services.drone_manager import DroneManager
 from app.services.flight_recorder import FlightRecorder
 from app.services.telemetry_service import TelemetryService
+from app.services.vision_service import VisionService
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -34,6 +36,18 @@ async def lifespan(app: FastAPI):
             logger.error("Flight logging disabled: cannot open %s: %s", settings.flight_log_path, e)
             recorder = None
     app.state.flight_recorder = recorder
+    vision_service = None
+    if settings.vision_enabled:
+        if importlib.util.find_spec("ultralytics") is None:
+            logger.error(
+                "TELLO_VISION_ENABLED is set but ultralytics is not installed "
+                "(pip install -r requirements-vision.txt). Vision stays off."
+            )
+        else:
+            from app.services.detector import load_default_detector
+
+            vision_service = VisionService(dm, load_default_detector)
+    app.state.vision_service = vision_service
     await ts.start()
     logger.info("Backend ready. Mock mode: %s", settings.use_mock_drone)
 
@@ -42,6 +56,8 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logger.info("Shutting down...")
     await ts.stop()
+    if vision_service:
+        await vision_service.stop()
     await dm.shutdown()
     if recorder:
         await recorder.stop()
@@ -67,4 +83,5 @@ app.include_router(telemetry.router)
 app.include_router(video.router)
 app.include_router(sequences.router)
 app.include_router(flights.router)
+app.include_router(vision.router)
 app.include_router(status.router)

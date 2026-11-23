@@ -8,6 +8,7 @@ import type {
   RotateDirection,
   Sequence,
   StatusResponse,
+  VisionState,
 } from '@/types/drone';
 
 export const VIDEO_STREAM_URL = '/api/video/stream';
@@ -125,4 +126,30 @@ export async function deleteFlight(id: number): Promise<ApiResponse> {
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : 'Network error' };
   }
+}
+
+export function getVision(): Promise<VisionState> {
+  return get<VisionState>('/api/vision');
+}
+
+/** Vision endpoints answer with the new state, or an error body on refusal. */
+async function postVision(path: string, body: Record<string, unknown>): Promise<VisionState | null> {
+  try {
+    const res = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return res.ok ? await res.json() : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setDetecting(enabled: boolean): Promise<VisionState | null> {
+  return postVision('/api/vision/detect', { enabled });
+}
+
+export function setTracking(enabled: boolean, target = 'person'): Promise<VisionState | null> {
+  return postVision('/api/vision/track', { enabled, target });
 }

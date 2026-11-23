@@ -25,8 +25,12 @@ async def telemetry_ws(websocket: WebSocket):
     async def send_command_log(entry: dict):
         await websocket.send_text(json.dumps(entry))
 
+    vision_service = getattr(websocket.app.state, "vision_service", None)
+
     telemetry_service.subscribe(send_telemetry)
     drone_manager.add_command_log_callback(send_command_log)
+    if vision_service:
+        vision_service.subscribe(send_command_log)  # same shape: a JSON-able dict
 
     try:
         while True:
@@ -36,6 +40,8 @@ async def telemetry_ws(websocket: WebSocket):
     finally:
         telemetry_service.unsubscribe(send_telemetry)
         drone_manager.remove_command_log_callback(send_command_log)
+        if vision_service:
+            vision_service.unsubscribe(send_command_log)
 
 
 @router.websocket("/api/ws/control")

@@ -1,0 +1,4 @@
+# Optional: object detection overlay + person tracking (TELLO_VISION_ENABLED=true).
+# Pulls in PyTorch (several GB). Install on top of requirements.txt:
+#   pip install -r requirements.txt -r requirements-vision.txt
+ultralytics>=8.3,<9

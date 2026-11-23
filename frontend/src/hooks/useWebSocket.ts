@@ -1,6 +1,12 @@
 import { useEffect, useRef } from 'react';
 import { useDroneStore } from '@/stores/droneStore';
-import type { CommandLogEntry, SequenceProgress, TelemetryData, WsMessage } from '@/types/drone';
+import type {
+  CommandLogEntry,
+  DetectionsData,
+  SequenceProgress,
+  TelemetryData,
+  WsMessage,
+} from '@/types/drone';
 
 const MAX_BACKOFF = 16000;
 
@@ -56,6 +62,9 @@ export function useWebSocket() {
             }
             case 'command_log':
               addCommandLog(msg.data as CommandLogEntry);
+              break;
+            case 'detections':
+              useDroneStore.getState().setDetections(msg.data as DetectionsData);
               break;
             case 'sequence_progress': {
               const progress = msg.data as SequenceProgress;

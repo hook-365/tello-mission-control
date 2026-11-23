@@ -1,0 +1,17 @@
+# Optional overlay: builds the backend with object detection + person tracking.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.vision.yml up --build
+#
+# The image grows by several GB (PyTorch). Runs on CPU as-is; to use an NVIDIA
+# GPU, add a device reservation for the backend service and set TELLO_VISION_DEVICE.
+services:
+  backend:
+    build:
+      context: ./backend
+      args:
+        INSTALL_VISION: "true"
+    environment:
+      TELLO_VISION_ENABLED: "true"
+      # Keep downloaded model weights and Ultralytics settings on the data volume.
+      TELLO_VISION_MODEL: /app/data/yolov8n.pt
+      YOLO_CONFIG_DIR: /app/data

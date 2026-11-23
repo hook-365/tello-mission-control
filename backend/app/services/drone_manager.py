@@ -218,6 +218,8 @@ class DroneManager:
         self._rc_active: bool = False
         self._rc_last_at: float = 0.0
         self._rc_watchdog: asyncio.Task | None = None
+        # Notified when a pilot takes control, so automation (tracking) lets go
+        self._override_callbacks: list[Callable[[str], None]] = []
 
     # -- Properties --
 
@@ -277,6 +279,27 @@ class DroneManager:
             except ValueError:
                 pass
 
+    # -- Pilot override --
+
+    def add_override_callback(self, callback: Callable[[str], None]) -> None:
+        """Register a plain (non-async) function called with the reason whenever a
+        pilot command arrives: land, emergency, disconnect, a move/rotate/flip, or
+        live manual stick input. It runs before the command is sent to the drone."""
+        self._override_callbacks.append(callback)
+
+    def remove_override_callback(self, callback: Callable[[str], None]) -> None:
+        try:
+            self._override_callbacks.remove(callback)
+        except ValueError:
+            pass
+
+    def _notify_override(self, reason: str) -> None:
+        for cb in list(self._override_callbacks):
+            try:
+                cb(reason)
+            except Exception as e:
+                logger.error("Override callback failed: %s", e)
+
     # -- Core execute method --
 
     async def execute(self, fn: Callable, *args: Any) -> Any:
@@ -301,7 +324,6 @@ class DroneManager:
 
         await self.execute(self._tello.connect)
         self._connected = True
-        self._rc_watchdog = asyncio.create_task(self._rc_watchdog_loop())
         battery = await self.get_battery()
         await self._broadcast_command_log("connect", {}, "ok")
         return {"ok": True, "status": "connected", "battery": battery}
@@ -310,6 +332,7 @@ class DroneManager:
         if not self._connected:
             return {"ok": True, "status": "already_disconnected"}
 
+        self._notify_override("disconnect")
         await self._stop_rc_watchdog()
 
         if self._streaming:
@@ -344,6 +367,7 @@ class DroneManager:
 
     async def land(self) -> dict:
         self._require_connected()
+        self._notify_override("land")
         self._rc_active = False
         await self.execute(self._tello.land)
         self._flying = False
@@ -352,6 +376,7 @@ class DroneManager:
 
     async def emergency(self) -> dict:
         """Emergency stop — bypasses the lock for instant response."""
+        self._notify_override("emergency")
         if self._tello:
             await asyncio.to_thread(self._tello.emergency)
             self._flying = False
@@ -373,6 +398,7 @@ class DroneManager:
             MoveDirection.down: self._tello.move_down,
         }
         fn = method_map[direction]
+        self._notify_override("move")
         await self.execute(fn, distance_cm)
         await self._broadcast_command_log(
             "move", {"direction": direction.value, "distance_cm": distance_cm}, "ok"
@@ -384,6 +410,7 @@ class DroneManager:
     async def rotate(self, direction: RotateDirection, angle_deg: int) -> dict:
         self._require_connected()
         self._require_flying()
+        self._notify_override("rotate")
         if direction == RotateDirection.cw:
             await self.execute(self._tello.rotate_clockwise, angle_deg)
         else:
@@ -398,6 +425,7 @@ class DroneManager:
     async def flip(self, direction: FlipDirection) -> dict:
         self._require_connected()
         self._require_flying()
+        self._notify_override("flip")
         await self.execute(self._tello.flip, direction.value[0])
         await self._broadcast_command_log("flip", {"direction": direction.value}, "ok")
         return {"ok": True, "message": f"Flipped {direction.value}"}
@@ -408,22 +436,34 @@ class DroneManager:
     def rc_active(self) -> bool:
         return self._rc_active
 
-    async def send_rc(self, lr: int, fb: int, ud: int, yaw: int) -> dict:
+    async def send_rc(
+        self, lr: int, fb: int, ud: int, yaw: int, source: str = "manual"
+    ) -> dict:
         """Set stick velocities (-100..100 per channel).
 
         Deliberately bypasses the command lock: the drone does not acknowledge
         RC packets, so the send returns at once, and stick input must not queue
         behind a blocking move. Non-zero input has to be refreshed within
         ``rc_timeout_ms`` or the watchdog zeroes it and the drone hovers.
+
+        ``source`` is "manual" for a pilot or the name of the automation sending
+        it. Live manual input counts as a pilot override.
         """
         self._require_connected()
         self._require_flying()
-        self._tello.send_rc_control(lr, fb, ud, yaw)
         active = any((lr, fb, ud, yaw))
+        if source == "manual" and active:
+            self._notify_override("manual stick input")
+        self._tello.send_rc_control(lr, fb, ud, yaw)
         self._rc_last_at = time.monotonic()
+        if active and (self._rc_watchdog is None or self._rc_watchdog.done()):
+            self._rc_watchdog = asyncio.create_task(self._rc_watchdog_loop())
         if active != self._rc_active:
             self._rc_active = active
-            await self._broadcast_command_log("rc_start" if active else "rc_stop", {}, "ok")
+            # Automation flips between moving and hovering many times a minute;
+            # only a pilot's stick transitions are worth a log line.
+            if source == "manual":
+                await self._broadcast_command_log("rc_start" if active else "rc_stop", {}, "ok")
         return {"ok": True, "message": "RC updated"}
 
     async def stop_rc(self, reason: str = "rc_stop") -> None:
@@ -436,8 +476,9 @@ class DroneManager:
         await self._broadcast_command_log(reason, {}, "ok")
 
     async def _rc_watchdog_loop(self) -> None:
+        """Runs only while sticks are live; exits once they are zeroed."""
         timeout = settings.rc_timeout_ms / 1000
-        while True:
+        while self._rc_active:
             await asyncio.sleep(timeout / 4)
             if self._rc_active and time.monotonic() - self._rc_last_at > timeout:
                 logger.warning("RC input stale for >%dms, hovering", settings.rc_timeout_ms)

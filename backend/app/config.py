@@ -23,6 +23,19 @@ class Settings(BaseSettings):
     flight_log_enabled: bool = True
     flight_log_path: str = "data/flights.db"
 
+    # Vision (optional, needs requirements-vision.txt): detection overlay + tracking
+    vision_enabled: bool = False
+    vision_model: str = "yolov8n.pt"
+    vision_confidence: float = 0.4
+    vision_device: str = ""  # "" = auto, or "cpu", "cuda:0", ...
+    vision_hz: float = 5.0
+    # Tracking controller. Untuned defaults: start slow and adjust on a real drone.
+    vision_track_max_speed: int = 30
+    vision_track_gain_yaw: float = 60.0
+    vision_track_gain_ud: float = 40.0
+    vision_track_gain_fb: float = 40.0
+    vision_track_target_height: float = 0.5
+
     # Video
     video_fps: int = 30
     video_jpeg_quality: int = 70

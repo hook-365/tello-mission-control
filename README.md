@@ -182,8 +182,11 @@ python -m pytest -v    # all tests use MockTello (no drone needed)
 | GET | `/api/flights` | Recorded flights, newest first |
 | GET | `/api/flights/{id}` | One flight with its full telemetry and command log |
 | DELETE | `/api/flights/{id}` | Delete a recorded flight |
+| GET | `/api/vision` | `{available, detecting, tracking, target, hz}` |
+| POST | `/api/vision/detect` | Switch object detection on/off (body: `{enabled}`) |
+| POST | `/api/vision/track` | Start/stop following a target (body: `{enabled, target}`) |
 | GET | `/api/sequences` | List flight sequences (stub) |
-| WS | `/api/ws/telemetry` | Telemetry push (~4Hz) + command logs |
+| WS | `/api/ws/telemetry` | Telemetry push (~4Hz) + command logs + detections (when vision is on) |
 | WS | `/api/ws/control` | Stick input stream: send `{lr, fb, ud, yaw}` frames (~20Hz) |
 
 ### Allowed Values
@@ -228,6 +231,43 @@ Every connection is recorded to a SQLite file: each telemetry frame (~4 Hz) and 
 
 The log lives at `TELLO_FLIGHT_LOG_PATH` (`data/flights.db`; with Docker, `./data` on the host). It grows by roughly 3 MB per hour connected and is never pruned automatically — delete flights from the UI or the API. If the file can't be opened the backend logs an error and carries on without recording.
 
+### Object Detection & Person Tracking (optional)
+
+Off by default, because it needs PyTorch (several GB). To enable it:
+
+```bash
+# Native
+cd backend && pip install -r requirements.txt -r requirements-vision.txt
+TELLO_VISION_ENABLED=true uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+# Docker
+docker compose -f docker-compose.yml -f docker-compose.vision.yml up --build
+```
+
+Two buttons then appear in the status bar:
+
+- **Detect** runs YOLO (`yolov8n` by default) on the video about 5 times a second and draws labelled boxes over the feed. The model loads the first time you switch it on, which takes a few seconds, and its weights (~6 MB) are downloaded on first use.
+- **Follow** (only while flying) turns the drone to keep the nearest person centred, climbs or descends to match, and moves forward or back to hold them at a set size in frame. It never strafes.
+
+Following is built to let go easily:
+
+- Any pilot input cancels it at once: a stick, a move/rotate/flip, land, emergency or disconnect.
+- With no person in view it hovers and waits. If the video stalls for a second, or the detector errors, it hovers.
+- Every channel is capped at `TELLO_VISION_TRACK_MAX_SPEED` (default 30 of 100).
+
+> ⚠️ The tracking gains are **untuned defaults that have never been flown on a real drone** — they were only exercised against the mock. The drone still cannot see obstacles: it will follow a person into a wall. First flights should be in a large clear space with a low speed cap and a finger on Land.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TELLO_VISION_ENABLED` | `false` | Turn the feature on |
+| `TELLO_VISION_MODEL` | `yolov8n.pt` | Ultralytics model name or path |
+| `TELLO_VISION_CONFIDENCE` | `0.4` | Minimum detection confidence |
+| `TELLO_VISION_DEVICE` | *(auto)* | `cpu`, `cuda:0`, … |
+| `TELLO_VISION_HZ` | `5.0` | Detections per second |
+| `TELLO_VISION_TRACK_MAX_SPEED` | `30` | Cap on every stick channel while following |
+| `TELLO_VISION_TRACK_GAIN_YAW` / `_UD` / `_FB` | `60` / `40` / `40` | Stick velocity per unit of error |
+| `TELLO_VISION_TRACK_TARGET_HEIGHT` | `0.5` | How much of the frame height the person should fill |
+
 ## Configuration
 
 All environment variables are prefixed with `TELLO_`. See `.env.template` for the full list with defaults.
@@ -269,6 +309,7 @@ All environment variables are prefixed with `TELLO_`. See `.env.template` for th
 │   └── drone_control_full.py       # Advanced flight choreography
 ├── docs/                           # PRD & Architecture docs
 ├── docker-compose.yml              # Both services orchestration
+├── docker-compose.vision.yml       # Optional overlay: backend with object detection
 ├── .env.template                   # Environment variable template
 └── .env                            # Local environment config (gitignored)
 ```
@@ -280,6 +321,7 @@ All environment variables are prefixed with `TELLO_`. See `.env.template` for th
 - `/api/control/emergency` bypasses all locks — use if anything goes wrong
 - Disconnecting while airborne auto-lands first
 - Stick (RC) input that stops arriving is zeroed after 500 ms, so a lost client leaves the drone hovering
+- Person tracking gives up control on any pilot input and hovers when it loses its target or the video
 
 ## Future Implementations
 
@@ -294,8 +336,8 @@ A roadmap of where this project could go, roughly ordered from most practical to
 
 ### Phase 2 — Computer Vision
 
-- **Object Detection Overlay** — Run YOLOv8/v10 on the video stream (on the ground station GPU or via edge TPU) and draw bounding boxes on the HUD
-- **Face / Person Tracking** — Detect a target and auto-generate RC commands to keep them centered in frame — "follow me" mode
+- ~~**Object Detection Overlay** — Run YOLOv8/v10 on the video stream (on the ground station GPU or via edge TPU) and draw bounding boxes on the HUD~~ ✅ Done (optional) — see [Object Detection & Person Tracking](#object-detection--person-tracking-optional)
+- ~~**Face / Person Tracking** — Detect a target and auto-generate RC commands to keep them centered in frame — "follow me" mode~~ ✅ Done for people, untuned on real hardware
 - **Optical Flow & SLAM** — Estimate drone position drift without GPS using visual odometry, display estimated position on a 2D minimap
 - **QR / ArUco Marker Navigation** — Place markers as waypoints; drone reads them mid-flight to self-correct position
 

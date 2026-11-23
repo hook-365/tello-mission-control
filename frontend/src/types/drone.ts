@@ -57,9 +57,40 @@ export interface StatusResponse {
   battery: number;
 }
 
+/** A detected object. Box is normalised to the video frame: 0..1, origin top-left. */
+export interface Detection {
+  label: string;
+  confidence: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface DetectionsData {
+  detections: Detection[];
+  /** The box being followed, when tracking. */
+  target: Detection | null;
+  detecting: boolean;
+  tracking: boolean;
+  /** True when the video stream has stalled, so nothing can be detected. */
+  stale: boolean;
+  frame_width: number | null;
+  frame_height: number | null;
+}
+
+export interface VisionState {
+  /** False when the backend runs without the optional vision feature. */
+  available: boolean;
+  detecting: boolean;
+  tracking: boolean;
+  target?: string;
+  hz?: number;
+}
+
 export interface WsMessage {
-  type: 'telemetry' | 'command_log' | 'sequence_progress';
-  data: TelemetryData | CommandLogEntry | SequenceProgress;
+  type: 'telemetry' | 'command_log' | 'sequence_progress' | 'detections';
+  data: TelemetryData | CommandLogEntry | SequenceProgress | DetectionsData;
   timestamp?: string;
 }
 

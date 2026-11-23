@@ -86,9 +86,6 @@ async def test_rc_logs_transitions_not_every_frame(flying_dm):
 
 @pytest.mark.asyncio
 async def test_watchdog_hovers_when_input_goes_stale(flying_dm, short_rc_timeout):
-    # The watchdog started at connect() with the default timeout; restart it short.
-    await flying_dm._stop_rc_watchdog()
-    flying_dm._rc_watchdog = asyncio.create_task(flying_dm._rc_watchdog_loop())
     entries = []
 
     async def capture(entry):
@@ -105,8 +102,6 @@ async def test_watchdog_hovers_when_input_goes_stale(flying_dm, short_rc_timeout
 
 @pytest.mark.asyncio
 async def test_watchdog_leaves_refreshed_input_alone(flying_dm, short_rc_timeout):
-    await flying_dm._stop_rc_watchdog()
-    flying_dm._rc_watchdog = asyncio.create_task(flying_dm._rc_watchdog_loop())
     for _ in range(8):
         await flying_dm.send_rc(0, 70, 0, 0)
         await asyncio.sleep(0.03)
@@ -127,12 +122,28 @@ async def test_land_and_emergency_clear_rc(flying_dm):
 
 
 @pytest.mark.asyncio
-async def test_disconnect_stops_watchdog():
-    dm = DroneManager()
-    await dm.connect()
-    assert dm._rc_watchdog is not None
-    await dm.disconnect()
-    assert dm._rc_watchdog is None
+async def test_watchdog_runs_only_while_sticks_are_live(flying_dm, short_rc_timeout):
+    assert flying_dm._rc_watchdog is None  # nothing idles after connect/takeoff
+
+    await flying_dm.send_rc(0, 50, 0, 0)
+    watchdog = flying_dm._rc_watchdog
+    assert watchdog is not None and not watchdog.done()
+
+    await flying_dm.send_rc(0, 0, 0, 0)
+    await asyncio.sleep(0.1)
+    assert watchdog.done()
+
+    # Live input again gets a fresh watchdog, which still trips.
+    await flying_dm.send_rc(0, 50, 0, 0)
+    await asyncio.sleep(0.3)
+    assert flying_dm.tello.rc_commands[-1] == (0, 0, 0, 0)
+
+
+@pytest.mark.asyncio
+async def test_disconnect_stops_watchdog(flying_dm):
+    await flying_dm.send_rc(0, 50, 0, 0)
+    await flying_dm.disconnect()
+    assert flying_dm._rc_watchdog is None
 
 
 # -- DroneManager: flip --
