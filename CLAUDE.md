@@ -78,24 +78,31 @@ cd frontend && npx vitest run                   # Frontend tests (CI mode)
 │   │   ├── main.py                 # FastAPI app, lifespan, CORS, router wiring
 │   │   ├── config.py               # pydantic-settings with TELLO_ env prefix
 │   │   ├── routers/
-│   │   │   ├── control.py          # POST /api/control/* (connect, takeoff, move, etc.)
+│   │   │   ├── control.py          # POST /api/control/* (connect, takeoff, land, move, rotate, flip, emergency)
+│   │   │   ├── rc.py               # Stick control: POST /api/control/rc, WS /api/ws/rc
 │   │   │   ├── video.py            # GET /api/video/stream (MJPEG), POST /api/video/snapshot
-│   │   │   ├── telemetry.py        # WS /api/ws/telemetry
-│   │   │   ├── sequences.py        # GET /api/sequences (stub)
+│   │   │   ├── media.py            # /api/media: saved photos and clips, recording
+│   │   │   ├── telemetry.py        # WS /api/ws/telemetry (telemetry, command log, sequence/media/detection events)
+│   │   │   ├── sequences.py        # /api/sequences: CRUD, run, abort, run status
 │   │   │   ├── flights.py          # GET/DELETE /api/flights (recorded sessions)
 │   │   │   ├── vision.py           # /api/vision (503 unless TELLO_VISION_ENABLED)
 │   │   │   └── status.py           # GET /api/status, GET /api/telemetry
 │   │   ├── services/
 │   │   │   ├── drone_manager.py    # Singleton Tello wrapper + asyncio.Lock + MockTello
 │   │   │   ├── telemetry_service.py # Background 4Hz polling + pub-sub broadcasting
+│   │   │   ├── flight_alerts.py    # Battery / Wi-Fi alert levels from config thresholds
+│   │   │   ├── sequence_store.py   # Saved sequences as JSON files (+ built-ins)
+│   │   │   ├── sequence_runner.py  # Runs one sequence at a time: pre-flight checks, abort, progress events
+│   │   │   ├── media.py            # Photos + H.264 clip recording to TELLO_MEDIA_DIR
 │   │   │   ├── flight_recorder.py  # SQLite flight log; subscribes to telemetry + command log
 │   │   │   ├── detector.py         # Detector protocol + lazy-imported YoloDetector (optional dep)
 │   │   │   ├── tracking.py         # Pure follow-target controller (box -> stick velocities)
 │   │   │   └── vision_service.py   # Detection loop, broadcast, tracking; yields to pilot override
 │   │   └── models/
 │   │       ├── commands.py         # Pydantic request/response schemas with validation
+│   │       ├── sequences.py        # Sequence steps, run request and run status
 │   │       └── telemetry.py        # Telemetry data models
-│   └── tests/                      # pytest (54 tests)
+│   └── tests/                      # pytest, all against MockTello
 ├── frontend/                       # React + Vite + TailwindCSS
 │   ├── Dockerfile                  # Multi-stage: Node build → Nginx runtime
 │   ├── nginx.conf                  # SPA fallback + API/WS/MJPEG reverse proxy
@@ -103,14 +110,18 @@ cd frontend && npx vitest run                   # Frontend tests (CI mode)
 ├── mcp_server/                     # MCP server: thin REST client, own venv (mcp SDK v2 conflicts with backend pins)
 ├── sample_drone_integration/       # djitellopy reference scripts for developers
 ├── docs/                           # PRD & Architecture docs
-├── docker-compose.yml              # Both services orchestration
+├── docker-compose.yml              # Both services orchestration (./data holds sequences, media, flight log)
+├── docker-compose.vision.yml       # Override: build the backend with the optional vision extra
+├── .github/workflows/tests.yml     # CI: backend, frontend and MCP server tests
 ├── .env.template                   # Environment variable template
 └── .env                            # Local environment config (gitignored)
 ```
 
 ## Key Design Constraints
 
-- **Command serialization**: Tello SDK processes one command at a time. `DroneManager` uses `asyncio.Lock` to serialize all commands. Emergency bypasses the lock for instant response.
+- **Command serialization**: Tello SDK processes one command at a time. `DroneManager` uses `asyncio.Lock` to serialize all commands. Emergency bypasses the lock for instant response. Stick updates (`send_rc`) are dropped, not queued, while another command holds the lock, and a watchdog hovers the drone if they stop arriving (`TELLO_RC_TIMEOUT_S`).
+- **One event fan-out**: `DroneManager.broadcast_event` carries command-log entries, sequence progress and media events to every subscriber (telemetry WebSocket, flight recorder). Subscribers must check `type` and must not raise.
+- **Sequences own the drone while running**: manual flight commands return 409, Land aborts the run, and stick input and tracking are refused.
 - **Pilot override**: anything that drives the drone automatically (currently person tracking) must register with `DroneManager.add_override_callback` and send sticks via `send_rc(..., source="<name>")`. Every pilot command (and so every sequence step) calls `_notify_override` before reaching the drone, and automation must stop sending the moment it fires. New pilot-facing commands on `DroneManager` need the same call.
 - **Vision is optional**: `ultralytics` is never imported at module level. Tests use a fake `Detector`; the real model is not exercised by the test suite.
 - **Mock mode**: Set `TELLO_USE_MOCK_DRONE=true` to run without a physical drone. MockTello generates placeholder video frames and simulates all telemetry.
@@ -122,16 +133,15 @@ cd frontend && npx vitest run                   # Frontend tests (CI mode)
 
 ## API Surface
 
-### Implemented
-- REST: `POST /api/control/{connect,disconnect,takeoff,land,emergency,move,rotate}`
-- REST: `GET /api/video/stream` (MJPEG), `POST /api/video/stream/start`, `POST /api/video/stream/stop`, `POST /api/video/snapshot`
-- REST: `GET /api/status` — `{ connected, flying, streaming, battery }`
-- REST: `GET /api/sequences` — stub, returns `[]`
-- WebSocket: `WS /api/ws/telemetry` — pushes telemetry frames (~4Hz) with `{battery, height, flight_time, temperature{high,low}, attitude{pitch,roll,yaw}, speed{x,y,z}, barometer, tof_distance}` and command log events
+The README's API Reference table is the full list; keep it current when adding endpoints.
 
-### Not yet implemented
-- `POST /api/control/{flip,rc}` (P1)
-- `POST /api/sequences/{id}/run`, `POST /api/sequences/cancel` (P1)
+- Control: `POST /api/control/{connect,disconnect,takeoff,land,emergency,move,rotate,flip,rc}`, `WS /api/ws/rc`
+- Video and media: `/api/video/stream` (MJPEG), `/api/video/snapshot`, `/api/media` (photos, clips, recording)
+- State: `GET /api/status`, `GET /api/telemetry`, `WS /api/ws/telemetry`
+- Sequences: `/api/sequences` (CRUD), `/run`, `/{id}/run`, `/abort`, `/run/status`
+- Flight log: `GET /api/flights`, `GET/DELETE /api/flights/{id}`
+- Vision (optional): `GET /api/vision`, `POST /api/vision/{detect,track}`
+- MCP: `mcp_server/` wraps the above as tools; add a tool there when adding a pilot-facing endpoint
 
 ## Environment Variables
 

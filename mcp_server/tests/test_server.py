@@ -26,6 +26,9 @@ class FakeBackend:
         self.connected = False
         self.flying = False
         self.requests: list[tuple[str, str, dict | None]] = []
+        self.battery = 85
+        self.recording = False
+        self.sequence_running = False
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content) if request.content else None
@@ -53,8 +56,50 @@ class FakeBackend:
         if path.startswith("/api/flights/"):
             return httpx.Response(404, json={"detail": "Flight not found"})
 
+        if path == "/api/sequences":
+            return httpx.Response(200, json=[{
+                "id": "orbit", "name": "Orbit", "description": "Circle a point",
+                "builtin": True, "steps": [{"type": "takeoff"}, {"type": "orbit"}, {"type": "land"}],
+            }])
+        if path == "/api/sequences/run/status":
+            return httpx.Response(200, json={
+                "status": "running" if self.sequence_running else "idle",
+                "sequence_name": "Orbit" if self.sequence_running else None,
+                "current_step": 1 if self.sequence_running else 0, "total_steps": 3,
+            })
+        if path == "/api/sequences/abort":
+            was, self.sequence_running = self.sequence_running, False
+            return httpx.Response(200, json={
+                "ok": True, "message": "Abort requested" if was else "No sequence running",
+            })
+        if path == "/api/sequences/orbit/run":
+            if self.battery < 30:
+                return httpx.Response(409, json={"detail": {
+                    "message": "Pre-flight check failed",
+                    "problems": ["Battery is at 20%, need at least 30%"],
+                }})
+            self.sequence_running = True
+            return httpx.Response(200, json={"status": "running", "sequence_name": "Orbit"})
+        if path.startswith("/api/sequences/") and path.endswith("/run"):
+            return httpx.Response(404, json={"detail": "Sequence 'nope' not found"})
+        if path == "/api/media":
+            return httpx.Response(200, json={
+                "items": [{"name": "photo-1.jpg", "kind": "photo"}],
+                "recording": {"recording": self.recording},
+            })
+        if path == "/api/media/record/stop":
+            was, self.recording = self.recording, False
+            return httpx.Response(200, json={
+                "item": {"name": "clip-1.mp4", "kind": "video"} if was else None,
+            })
+
         if not self.connected:
             return httpx.Response(409, json={"detail": "Drone is not connected"})
+        if path == "/api/media/photo":
+            return httpx.Response(200, json={"name": "photo-1.jpg", "kind": "photo"})
+        if path == "/api/media/record/start":
+            self.recording = True
+            return httpx.Response(200, json={"recording": True, "name": "clip-1.mp4"})
         if path == "/api/control/takeoff":
             self.flying = True
             return httpx.Response(200, json={"ok": True, "message": "Takeoff successful"})
@@ -107,7 +152,9 @@ async def test_exposes_the_expected_tools(server):
     assert names == {
         "connect", "disconnect", "takeoff", "land", "emergency_stop", "move", "rotate",
         "flip", "get_status", "get_telemetry", "take_snapshot", "list_flights",
-        "get_flight_commands",
+        "get_flight_commands", "take_photo", "start_recording", "stop_recording",
+        "list_media", "list_sequences", "run_sequence", "get_sequence_status",
+        "abort_sequence",
     }
 
 
@@ -248,3 +295,41 @@ async def test_timeout_warns_the_command_may_still_be_running():
     server = build_server(client=client)
     with pytest.raises(ToolError, match="may still be in progress"):
         await server.call_tool("takeoff", {})
+
+
+@pytest.mark.asyncio
+async def test_camera_gallery_tools(server, backend):
+    with pytest.raises(ToolError, match="Drone is not connected"):
+        await server.call_tool("take_photo", {})
+
+    await call(server, "connect")
+    assert (await call_json(server, "take_photo"))["name"] == "photo-1.jpg"
+    assert (await call_json(server, "start_recording"))["recording"] is True
+    assert (await call_json(server, "list_media"))["recording"] == {"recording": True}
+    assert (await call_json(server, "stop_recording"))["item"]["name"] == "clip-1.mp4"
+    assert (await call_json(server, "stop_recording"))["item"] is None
+
+
+@pytest.mark.asyncio
+async def test_sequence_tools(server, backend):
+    listed = await call_json(server, "list_sequences")
+    assert listed == {"id": "orbit", "name": "Orbit", "description": "Circle a point", "steps": 3}
+
+    assert (await call_json(server, "get_sequence_status"))["status"] == "idle"
+    assert (await call_json(server, "run_sequence", sequence_id="orbit"))["status"] == "running"
+    assert (await call_json(server, "get_sequence_status"))["sequence_name"] == "Orbit"
+    assert "Abort requested" in (await call_json(server, "abort_sequence"))["message"]
+    assert ("POST", "/api/sequences/orbit/run", None) in backend.requests
+
+
+@pytest.mark.asyncio
+async def test_sequence_preflight_refusal_lists_the_problems(server, backend):
+    backend.battery = 20
+    with pytest.raises(ToolError, match="Pre-flight check failed: Battery is at 20%"):
+        await server.call_tool("run_sequence", {"sequence_id": "orbit"})
+
+
+@pytest.mark.asyncio
+async def test_unknown_sequence_is_reported(server):
+    with pytest.raises(ToolError, match="not found"):
+        await server.call_tool("run_sequence", {"sequence_id": "nope"})

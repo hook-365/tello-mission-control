@@ -22,7 +22,7 @@ claude mcp add tello \
   -- /absolute/path/to/mcp_server/.venv/bin/python /absolute/path/to/mcp_server/server.py
 ```
 
-Then ask for things like "connect to the drone, take off, turn to face the window and take a picture".
+Then ask for things like "connect to the drone, take off, turn to face the window and take a picture", or "run the orbit sequence and record it".
 
 ## Run over HTTP
 
@@ -45,6 +45,12 @@ It binds to `127.0.0.1` by default. There is **no authentication**: anyone who c
 | `get_status` | Connected / flying / streaming, battery |
 | `get_telemetry` | Height, speed, attitude, temperature, battery |
 | `take_snapshot` | Current camera frame as a JPEG image |
+| `take_photo` | Save a photo to the gallery (keeps the file, returns its name) |
+| `start_recording` / `stop_recording` | Record a video clip to the gallery |
+| `list_media` | Photos and clips in the gallery, and whether a clip is recording |
+| `list_sequences` | Saved flight sequences: id, name, description, step count |
+| `run_sequence` | Start a saved sequence; returns at once while it flies |
+| `get_sequence_status` / `abort_sequence` | Follow a running sequence, or stop it (lands after the current step) |
 | `list_flights` | Recorded flights from the flight log |
 | `get_flight_commands` | Commands issued during one recorded flight |
 

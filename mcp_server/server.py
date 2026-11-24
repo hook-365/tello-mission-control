@@ -46,6 +46,10 @@ def _error_detail(resp: httpx.Response) -> str:
             ": ".join(filter(None, [".".join(str(p) for p in d.get("loc", [])[1:]), d.get("msg", "")]))
             for d in detail
         )
+    if isinstance(detail, dict):  # sequence pre-flight refusal: a message plus the reasons
+        problems = "; ".join(str(p) for p in detail.get("problems", []))
+        message = str(detail.get("message", "")) or "Refused"
+        return f"{message}: {problems}" if problems else message
     return str(detail)
 
 
@@ -157,6 +161,72 @@ def build_server(client: httpx.AsyncClient | None = None, api_url: str | None = 
         """Capture what the drone's forward camera sees right now, as a JPEG."""
         resp = await request("POST", "/api/video/snapshot")
         return Image(data=resp.content, format="jpeg")
+
+    # -- Camera gallery --
+
+    @server.tool()
+    async def take_photo() -> dict:
+        """Save a photo to the drone's gallery on the ground station.
+
+        Unlike take_snapshot this keeps the file; it does not return the image.
+        Works on the ground too (the camera switches itself on).
+        """
+        return await call("POST", "/api/media/photo")
+
+    @server.tool()
+    async def start_recording() -> dict:
+        """Start recording a video clip to the gallery. Stops itself after 5 minutes."""
+        return await call("POST", "/api/media/record/start")
+
+    @server.tool()
+    async def stop_recording() -> dict:
+        """Stop the clip being recorded and save it. `item` is null if nothing was recording."""
+        return await call("POST", "/api/media/record/stop")
+
+    @server.tool()
+    async def list_media() -> dict:
+        """Photos and clips in the gallery, newest first, plus whether a clip is recording."""
+        return await call("GET", "/api/media")
+
+    # -- Flight sequences --
+
+    @server.tool()
+    async def list_sequences() -> list[dict]:
+        """Saved flight sequences (pre-planned routines such as an orbit or a reveal shot).
+
+        Returns id, name, description and step count for each; steps are left out.
+        """
+        sequences = await call("GET", "/api/sequences")
+        return [
+            {
+                "id": s.get("id"),
+                "name": s.get("name"),
+                "description": s.get("description", ""),
+                "steps": len(s.get("steps", [])),
+            }
+            for s in sequences
+        ]
+
+    @server.tool()
+    async def run_sequence(sequence_id: str) -> dict:
+        """Start a saved sequence by id and return at once; it keeps flying on its own.
+
+        The drone takes off and lands by itself as the sequence needs. It is refused
+        if a pre-flight check fails (low battery, weak signal) or one is already
+        running. Other flight commands are refused until it ends: poll
+        get_sequence_status, and use abort_sequence, land or emergency_stop to end it.
+        """
+        return await call("POST", f"/api/sequences/{sequence_id}/run")
+
+    @server.tool()
+    async def get_sequence_status() -> dict:
+        """Progress of the current or last sequence run: status, step, and any message."""
+        return await call("GET", "/api/sequences/run/status")
+
+    @server.tool()
+    async def abort_sequence() -> dict:
+        """Stop the running sequence. The drone lands after its current step finishes."""
+        return await call("POST", "/api/sequences/abort")
 
     # -- Flight log --
 

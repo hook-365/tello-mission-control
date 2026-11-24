@@ -108,6 +108,32 @@ describe('FlightsModal', () => {
     expect(screen.getByText('move up 70').closest('li')).toHaveClass('text-white');
   });
 
+  it('links saved photos, shows why a sequence stopped, and replays Wi-Fi signal', async () => {
+    vi.mocked(api.getFlight).mockResolvedValue({
+      ...detail,
+      telemetry: [{ timestamp: at(0), data: { ...telemetry(40), wifi_snr: 35, signal_level: 'weak' } }],
+      command_log: [
+        { command: 'photo', params: { name: 'photo 1.jpg' }, result: 'ok', timestamp: at(1) },
+        {
+          command: 'sequence_aborted',
+          params: { name: 'Orbit' },
+          result: 'error',
+          error: 'Land pressed',
+          timestamp: at(2),
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    render(<FlightsModal isOpen onClose={() => {}} />);
+    await user.click(await screen.findByText(/1:35 · 3 commands/));
+
+    const link = await screen.findByRole('link', { name: 'photo 1.jpg' });
+    expect(link).toHaveAttribute('href', '/api/media/files/photo%201.jpg');
+    expect(screen.getByText(/sequence_aborted Orbit — Land pressed/)).toBeInTheDocument();
+    expect(screen.getByText('Wi-Fi signal')).toBeInTheDocument();
+    expect(screen.getByText('35')).toHaveClass('text-caution');
+  });
+
   it('returns to the list from a flight', async () => {
     const user = userEvent.setup();
     render(<FlightsModal isOpen onClose={() => {}} />);

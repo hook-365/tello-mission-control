@@ -46,6 +46,14 @@ FROM sessions s
 """
 
 
+_SEQUENCE_COMMANDS = {
+    "running": "sequence_start",
+    "completed": "sequence_completed",
+    "aborted": "sequence_aborted",
+    "failed": "sequence_failed",
+}
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -66,6 +74,7 @@ class FlightRecorder:
         self._db: sqlite3.Connection | None = None
         self._db_lock = threading.Lock()
         self._session_id: int | None = None
+        self._last_sequence_key: tuple | None = None
 
     @property
     def active_session_id(self) -> int | None:
@@ -118,14 +127,39 @@ class FlightRecorder:
             logger.warning("Flight log: telemetry write failed: %s", e)
 
     async def on_command(self, entry: dict) -> None:
-        # The same fan-out carries sequence progress and media events; only
-        # command-log entries belong in the commands table.
-        if entry.get("type") != "command_log":
+        # The same fan-out carries sequence progress and media events. Commands
+        # are stored as they are; a sequence run is stored as its start and its
+        # outcome (each step already arrives as its own command); the rest is
+        # live-UI chatter and is skipped.
+        kind = entry.get("type")
+        if kind == "command_log":
+            data = entry.get("data", {})
+        elif kind == "sequence_progress":
+            data = self._sequence_transition(entry.get("data", {}), entry.get("timestamp"))
+            if data is None:
+                return
+        else:
             return
         try:
-            await asyncio.to_thread(self._write_command, entry.get("data", {}))
+            await asyncio.to_thread(self._write_command, data)
         except Exception as e:
             logger.warning("Flight log: command write failed: %s", e)
+
+    def _sequence_transition(self, status: dict, ts: str | None) -> dict | None:
+        """Turn a run's progress stream into two log rows: started, and how it ended."""
+        state = status.get("status")
+        key = (status.get("run_id"), state)
+        if state not in _SEQUENCE_COMMANDS or key == self._last_sequence_key:
+            return None
+        self._last_sequence_key = key
+        bad = state in ("aborted", "failed")
+        return {
+            "command": _SEQUENCE_COMMANDS[state],
+            "params": {"name": status.get("sequence_name") or "unsaved sequence"},
+            "result": "error" if bad else "ok",
+            "error": (status.get("message") or state) if bad else None,
+            "timestamp": ts or _now(),
+        }
 
     # -- Writes (worker thread) --
 

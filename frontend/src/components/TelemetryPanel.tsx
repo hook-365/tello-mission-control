@@ -26,6 +26,8 @@ export default function TelemetryPanel({ data, title = 'Telemetry' }: TelemetryP
     : null;
   const attitude = telemetry?.attitude ?? null;
   const tempHigh = telemetry?.temperature.high ?? null;
+  // Live signal sits in the status bar; a replayed frame has nowhere else to show it.
+  const replaySnr = data !== undefined ? (data?.wifi_snr ?? null) : null;
 
   const nullValue = <span className="text-hud-secondary">---</span>;
 
@@ -85,12 +87,29 @@ export default function TelemetryPanel({ data, title = 'Telemetry' }: TelemetryP
         </div>
 
         {/* Temperature */}
-        <div className="py-1.5">
+        <div className={`py-1.5 ${replaySnr !== null ? 'border-b border-white/[0.06]' : ''}`}>
           <div className="hud-label">Temp</div>
           <div className="hud-value text-hud-lg">
             {tempHigh !== null ? `${tempHigh}\u00B0C` : nullValue}
           </div>
         </div>
+
+        {replaySnr !== null && (
+          <div className="py-1.5">
+            <div className="hud-label">Wi-Fi signal</div>
+            <div
+              className={`hud-value text-hud-lg ${
+                data?.signal_level === 'critical'
+                  ? 'text-danger'
+                  : data?.signal_level === 'weak'
+                    ? 'text-caution'
+                    : ''
+              }`}
+            >
+              {replaySnr}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

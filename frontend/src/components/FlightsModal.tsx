@@ -3,11 +3,19 @@ import { ArrowLeft, Pause, Play, Trash2, X } from 'lucide-react';
 import TelemetryPanel from '@/components/TelemetryPanel';
 import * as api from '@/lib/api';
 import { formatFlightTime, secondsBetween } from '@/lib/format';
-import type { FlightDetail, FlightSummary } from '@/types/drone';
+import type { CommandLogEntry, FlightDetail, FlightSummary } from '@/types/drone';
 
 interface FlightsModalProps {
   isOpen: boolean;
   onClose: () => void;
+}
+
+/** Commands whose `name` param is a file saved in the gallery. */
+const MEDIA_COMMANDS = new Set(['photo', 'record_stop']);
+
+function savedFile(c: CommandLogEntry): string | null {
+  const name = c.params?.name;
+  return MEDIA_COMMANDS.has(c.command) && c.result === 'ok' && typeof name === 'string' ? name : null;
 }
 
 /** Replay advances one recorded frame per tick; frames are logged at ~4 Hz. */
@@ -239,8 +247,24 @@ export default function FlightsModal({ isOpen, onClose }: FlightsModalProps) {
                         </span>
                         <span className={c.result === 'error' ? 'text-danger' : undefined}>
                           {c.command}
-                          {Object.keys(c.params ?? {}).length > 0 &&
-                            ` ${Object.values(c.params).join(' ')}`}
+                          {savedFile(c) ? (
+                            <>
+                              {' '}
+                              <a
+                                className="underline hover:text-info"
+                                href={`/api/media/files/${encodeURIComponent(savedFile(c)!)}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                title="Open the saved file (gone if it was deleted from the gallery)"
+                              >
+                                {savedFile(c)}
+                              </a>
+                            </>
+                          ) : (
+                            Object.keys(c.params ?? {}).length > 0 &&
+                            ` ${Object.values(c.params).join(' ')}`
+                          )}
+                          {c.result === 'error' && c.error ? ` — ${c.error}` : ''}
                         </span>
                       </li>
                     ))}

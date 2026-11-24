@@ -262,7 +262,7 @@ Command log events are also pushed over the same connection:
 
 ## Flying with Claude (MCP)
 
-`mcp_server/` exposes the drone as MCP tools — connect, takeoff, move, rotate, flip, land, telemetry, camera snapshot and the flight log:
+`mcp_server/` exposes the drone as MCP tools — connect, takeoff, move, rotate, flip, land, telemetry, camera snapshot, gallery photos and clips, saved sequences and the flight log:
 
 ```bash
 cd mcp_server && python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
@@ -288,9 +288,9 @@ The original project has no license file; check with its author before sharing t
 ```bash
 cd backend
 source .venv/bin/activate
-python -m pytest -v    # 206 tests, all use MockTello (no drone needed)
+python -m pytest -v    # 208 tests, all use MockTello (no drone needed)
 
-cd ../frontend && npx vitest run   # 124 frontend tests
+cd ../frontend && npx vitest run   # 125 frontend tests
 ```
 
 ## API Reference
@@ -338,7 +338,7 @@ cd ../frontend && npx vitest run   # 124 frontend tests
 
 ### Flight Log & Replay
 
-Every connection is recorded to a SQLite file: each telemetry frame (~4 Hz) and every command, grouped into one session from connect to disconnect. Open the clock icon in the status bar to list recorded flights, then pick one to scrub or play back its telemetry alongside the commands that were issued.
+Every connection is recorded to a SQLite file: each telemetry frame (~4 Hz) and every command, grouped into one session from connect to disconnect. Open the clock icon in the status bar to list recorded flights, then pick one to scrub or play back its telemetry alongside the commands that were issued. Sequence runs appear in that list as a start and an outcome (with the reason if one was aborted or failed), and saved photos and clips link to the file.
 
 The log lives at `TELLO_FLIGHT_LOG_PATH` (`data/flights.db`; with Docker, `./data` on the host). It grows by roughly 3 MB per hour connected and is never pruned automatically — delete flights from the UI or the API. If the file can't be opened the backend logs an error and carries on without recording.
 
@@ -459,7 +459,7 @@ A roadmap of where this project could go, roughly ordered from most practical to
 
 - ~~**MCP Server** — Expose drone commands as MCP tools so Claude (or any MCP client) can fly the drone through natural language~~ ✅ Done — see [`mcp_server/`](mcp_server/README.md)
 - ~~**Flight Logging & Replay** — Persist every command + telemetry snapshot to SQLite/TimescaleDB, replay sessions in the UI as a timeline~~ ✅ Done (SQLite) — see [Flight Log & Replay](#flight-log--replay)
-- **Gamepad Support** — Map PS5/Xbox controllers via the Gamepad API to `send_rc_control()` for proper analog stick flying
+- ~~**Gamepad Support** — Map PS5/Xbox controllers via the Gamepad API to `send_rc_control()` for proper analog stick flying~~ ✅ Done — see [Flying with a Game Controller](#flying-with-a-game-controller)
 - **WebRTC Video** — Replace MJPEG with WebRTC for lower latency, better compression, and future peer-to-peer streaming
 
 ### Phase 2 — Computer Vision

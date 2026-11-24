@@ -100,13 +100,48 @@ async def test_telemetry_without_connect_opens_a_session(recorder):
 
 
 @pytest.mark.asyncio
-async def test_non_command_events_are_not_logged(recorder):
-    """Sequence progress and media events share the fan-out but are not commands."""
+async def test_media_events_are_not_logged(recorder):
+    """Media events share the fan-out; the photo/record commands already cover them."""
     await recorder.on_command(_cmd("connect"))
-    await recorder.on_command({"type": "sequence_progress", "data": {"state": "running"}})
-    await recorder.on_command({"type": "media", "data": {"event": "photo_saved"}})
+    await recorder.on_command({"type": "media", "data": {"event": "photo", "item": {}}})
     [summary] = await recorder.list_sessions()
     assert summary["commands"] == 1
+
+
+def _progress(status: str, step: int = 1, message: str = "") -> dict:
+    return {
+        "type": "sequence_progress",
+        "data": {
+            "run_id": "r1", "sequence_name": "Orbit", "status": status,
+            "current_step": step, "total_steps": 4, "message": message,
+        },
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@pytest.mark.asyncio
+async def test_sequence_run_is_logged_as_start_and_outcome(recorder):
+    await recorder.on_command(_cmd("connect"))
+    for step in (1, 2, 3):  # many progress updates, one "started" row
+        await recorder.on_command(_progress("running", step))
+    await recorder.on_command(_progress("completed", 4))
+
+    [summary] = await recorder.list_sessions()
+    log = (await recorder.get_session(summary["id"]))["command_log"]
+    assert [c["command"] for c in log] == ["connect", "sequence_start", "sequence_completed"]
+    assert log[1]["params"] == {"name": "Orbit"}
+    assert log[2]["result"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_aborted_sequence_is_logged_as_an_error_with_its_reason(recorder):
+    await recorder.on_command(_progress("running"))
+    await recorder.on_command(_progress("aborted", message="Land pressed"))
+
+    [summary] = await recorder.list_sessions()
+    last = (await recorder.get_session(summary["id"]))["command_log"][-1]
+    assert last["command"] == "sequence_aborted"
+    assert last["result"] == "error" and last["error"] == "Land pressed"
 
 
 @pytest.mark.asyncio
