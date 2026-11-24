@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from pydantic_settings import BaseSettings
 
 
@@ -9,6 +11,9 @@ class Settings(BaseSettings):
     # Server
     api_host: str = "0.0.0.0"
     api_port: int = 8000
+
+    # Built web UI (frontend/dist), served at / when it exists
+    frontend_dist: str = str(Path(__file__).resolve().parents[2] / "frontend" / "dist")
 
     # CORS
     cors_origins: list[str] = ["http://localhost:3000", "http://localhost:5173"]

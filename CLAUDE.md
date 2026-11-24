@@ -109,7 +109,8 @@ cd frontend && npx vitest run                   # Frontend tests (CI mode)
 │   └── src/
 ├── mcp_server/                     # MCP server: thin REST client, own venv (mcp SDK v2 conflicts with backend pins)
 ├── sample_drone_integration/       # djitellopy reference scripts for developers
-├── docs/                           # PRD & Architecture docs
+├── docs/                           # User guide, API and settings reference; original PRD/architecture
+├── start.sh                        # Non-Docker launcher: venv, UI build, uvicorn serving API + UI on one port
 ├── docker-compose.yml              # Both services orchestration (./data holds sequences, media, flight log)
 ├── docker-compose.vision.yml       # Override: build the backend with the optional vision extra
 ├── .github/workflows/tests.yml     # CI: backend, frontend and MCP server tests
@@ -127,13 +128,14 @@ cd frontend && npx vitest run                   # Frontend tests (CI mode)
 - **Mock mode**: Set `TELLO_USE_MOCK_DRONE=true` to run without a physical drone. MockTello generates placeholder video frames and simulates all telemetry.
 - **Video via MJPEG over HTTP** (`multipart/x-mixed-replace`). Frontend renders with `<img src="/api/video/stream" />`.
 - **Telemetry via WebSocket push** at ~4 Hz from a background polling task — not client-polled.
+- **Two ways to serve the UI**: Docker uses Nginx (`:3000`, proxies `/api`); without Docker, `main.mount_frontend` serves `frontend/dist` from the backend (`:8000`). The UI only uses relative `/api` URLs, so both work.
 - **Docker networking**: Uses standard bridge networking. Frontend Nginx proxies to backend via Docker DNS (`http://backend:8000`). For real drone on Linux, add `network_mode: host` to backend service.
 - **No authentication** in v1 — the app runs on the Tello's isolated Wi-Fi network.
 - **CORS**: Backend allows `http://localhost:3000` and `http://localhost:5173`.
 
 ## API Surface
 
-The README's API Reference table is the full list; keep it current when adding endpoints.
+`docs/api.md` is the full list; keep it current when adding endpoints. The README is the short getting-started page for pilots: reference material goes in `docs/`.
 
 - Control: `POST /api/control/{connect,disconnect,takeoff,land,emergency,move,rotate,flip,rc}`, `WS /api/ws/rc`
 - Video and media: `/api/video/stream` (MJPEG), `/api/video/snapshot`, `/api/media` (photos, clips, recording)
@@ -160,6 +162,6 @@ All prefixed with `TELLO_`. See `.env.template` for the full list with defaults.
 
 ## Reference Documents
 
-- `docs/PRD_TelloWebControl.md` — full product requirements with prioritized feature list (P0-P2)
-- `docs/ARCHITECTURE_TelloWebControl.md` — detailed architecture, data flows, API schemas, Docker config
+- `docs/flying.md`, `docs/api.md`, `docs/configuration.md`, `docs/vision.md`, `docs/networking.md`, `docs/roadmap.md` — current user and reference docs
+- `docs/requirement-*.md` — the original project's PRD, architecture and design notes (historical; they predate most features)
 - `sample_drone_integration/` — reference scripts showing djitellopy usage patterns

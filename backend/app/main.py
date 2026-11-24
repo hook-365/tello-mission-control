@@ -1,9 +1,11 @@
 import importlib.util
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.routers import control, media, rc, sequences, status, telemetry, video
@@ -97,3 +99,18 @@ app.include_router(vision.router)
 app.include_router(status.router)
 app.include_router(rc.router)
 app.include_router(media.router)
+
+
+def mount_frontend(app: FastAPI, dist: Path) -> bool:
+    """Serve the built web UI from the backend, so a non-Docker run is one process.
+
+    Does nothing when the UI has not been built (Docker serves it from Nginx,
+    and `npm run dev` serves it from Vite). Mounted last so /api always wins.
+    """
+    if not (dist / "index.html").is_file():
+        return False
+    app.mount("/", StaticFiles(directory=dist, html=True), name="frontend")
+    return True
+
+
+mount_frontend(app, Path(settings.frontend_dist))
